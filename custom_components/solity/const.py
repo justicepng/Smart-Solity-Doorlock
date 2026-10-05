@@ -20,6 +20,24 @@ DEFAULT_STATUS_MINUTES = 30
 MIN_STATUS_MINUTES = 1
 MAX_STATUS_MINUTES = 1440
 
+# How many consecutive status-poll misses to tolerate before the lock/battery
+# go 'unavailable'. A battery lock is asleep most of the time and often misses
+# a single poll, so one miss must NOT flap the entities to unavailable.
+TOLERATED_STATUS_FAILURES = 3
+
+# The device logs ONLY open events (never a lock/close). Since this lock
+# auto-locks, we synthesize a 'close' event — and revert the lock tile to
+# 'locked' — this many seconds after each open.
+CONF_AUTO_CLOSE_SECONDS = "auto_close_seconds"
+DEFAULT_AUTO_CLOSE_SECONDS = 5
+MIN_AUTO_CLOSE_SECONDS = 1
+MAX_AUTO_CLOSE_SECONDS = 300
+
+# Attribute values tagging the synthesized auto-lock close event.
+AUTO_CLOSE_METHOD = "auto"
+AUTO_CLOSE_LOG_TYPE = "AUTO_LOCK"
+AUTO_CLOSE_MESSAGE = "자동으로 잠겨습니다. (W)"
+
 MANUFACTURER = "SOLITY"
 MODEL = "WELKOM"
 
