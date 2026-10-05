@@ -10,7 +10,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import SolityAuthError, SolityClient, SolityError
-from .const import DOMAIN
+from .const import DOMAIN, TOLERATED_STATUS_FAILURES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,14 +35,41 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
         self.config_entry = entry
         self.client = client
         self.device_id = device_id
+        self._failures = 0
 
     async def _async_update_data(self) -> dict:
         try:
-            return await self.client.get_status(self.device_id)
+            data = await self.client.get_status(self.device_id)
         except SolityAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except SolityError as err:
+            # A sleeping lock / cloud timeout misses a poll. Don't flap the
+            # entities to 'unavailable' on the first miss — keep last values.
+            self._failures += 1
+            if self.data and self._failures <= TOLERATED_STATUS_FAILURES:
+                _LOGGER.debug(
+                    "Solity status miss %s/%s, keeping last data: %s",
+                    self._failures,
+                    TOLERATED_STATUS_FAILURES,
+                    err,
+                )
+                return self.data
             raise UpdateFailed(str(err)) from err
+
+        if not data:
+            # HTTP ok but the lock returned no payload (asleep). Same policy.
+            self._failures += 1
+            if self.data and self._failures <= TOLERATED_STATUS_FAILURES:
+                _LOGGER.debug(
+                    "Solity status empty %s/%s, keeping last data",
+                    self._failures,
+                    TOLERATED_STATUS_FAILURES,
+                )
+                return self.data
+            return data
+
+        self._failures = 0
+        return data
 
 
 class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):

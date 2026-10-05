@@ -1,16 +1,24 @@
 """Event platform for Smart Solity — fires on each new access-log entry."""
 from __future__ import annotations
 
+from datetime import datetime
+
 from homeassistant.components.event import EventEntity
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import SolityConfigEntry
 from .const import (
+    AUTO_CLOSE_LOG_TYPE,
+    AUTO_CLOSE_MESSAGE,
+    AUTO_CLOSE_METHOD,
+    CONF_AUTO_CLOSE_SECONDS,
     CONF_DEVICE_ID,
     CONF_NICKNAME,
+    DEFAULT_AUTO_CLOSE_SECONDS,
     DOMAIN,
     EVENT_CLOSE,
     EVENT_OPEN,
@@ -59,7 +67,11 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity):
             manufacturer=MANUFACTURER,
             model=MODEL,
         )
+        self._auto_close = entry.options.get(
+            CONF_AUTO_CLOSE_SECONDS, DEFAULT_AUTO_CLOSE_SECONDS
+        )
         self._last_dt: str | None = None
+        self._cancel_close = None
 
     async def async_added_to_hass(self) -> None:
         """Seed the baseline so startup does not replay history."""
@@ -95,10 +107,40 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity):
                     "log_type": log.get("logType"),
                     "log_code": log.get("logCode"),
                     "message": log.get("logMessage"),
+                    "synthetic": False,
                 },
             )
 
         if new_entries:
             self._last_dt = logs[0].get("logDateTime")
+            # The device logs opens only. If the newest event is an open,
+            # schedule a synthesized 'close' to mark the auto-lock.
+            if _event_type(logs[0].get("logCode")) == EVENT_OPEN:
+                self._schedule_auto_close()
 
         super()._handle_coordinator_update()
+
+    @callback
+    def _schedule_auto_close(self) -> None:
+        if self._cancel_close is not None:
+            self._cancel_close()
+        self._cancel_close = async_call_later(
+            self.hass, self._auto_close, self._fire_auto_close
+        )
+
+    @callback
+    def _fire_auto_close(self, _now) -> None:
+        self._cancel_close = None
+        self._trigger_event(
+            EVENT_CLOSE,
+            {
+                "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "who": None,
+                "method": AUTO_CLOSE_METHOD,
+                "log_type": AUTO_CLOSE_LOG_TYPE,
+                "log_code": LOG_CODE_CLOSE,
+                "message": AUTO_CLOSE_MESSAGE,
+                "synthetic": True,
+            },
+        )
+        self.async_write_ha_state()
