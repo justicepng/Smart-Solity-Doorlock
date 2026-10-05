@@ -1,0 +1,180 @@
+"""Async client for the Smart Solity cloud API.
+
+Reverse-engineered from the Smart Solity Android app (kr.co.h_gang.smartsolity).
+Auth model: POST /api_v2/login returns a JWT ``token`` (30-day) plus a
+secondary ``tokenPwd``. Both are sent on every authed call as the
+``Authorization`` and ``AuthorizationPwd`` headers. ``lang`` must be the
+numeric code ``"0"`` (Korean) — the string ``"ko"`` yields a half-token.
+"""
+from __future__ import annotations
+
+import asyncio
+import base64
+import hashlib
+import json
+import logging
+from urllib.parse import urlencode
+
+import aiohttp
+
+_LOGGER = logging.getLogger(__name__)
+
+BASE_URL = "https://www.smartsolity.com"
+PHONE_TOKEN = "ha-solity"  # a stable, HA-dedicated device id (own session)
+TIMEOUT = aiohttp.ClientTimeout(total=15)
+
+
+def hash_password(password: str) -> str:
+    """Return base64(sha256(password)) — the app's ``hashedPwd``."""
+    return base64.b64encode(hashlib.sha256(password.encode()).digest()).decode()
+
+
+class SolityError(Exception):
+    """Generic Solity API error."""
+
+
+class SolityAuthError(SolityError):
+    """Authentication failed (bad credentials / expired session)."""
+
+
+class SolityClient:
+    """Minimal async client with automatic token refresh."""
+
+    def __init__(
+        self,
+        session: aiohttp.ClientSession,
+        email: str,
+        hashed_pwd: str,
+    ) -> None:
+        self._session = session
+        self._email = email
+        self._hashed = hashed_pwd
+        self._token: str | None = None
+        self._token_pwd: str | None = None
+        self._lock = asyncio.Lock()
+
+    async def _raw(
+        self,
+        method: str,
+        path: str,
+        body: dict | None,
+        token: str | None,
+        token_pwd: str | None,
+    ) -> tuple[int, str]:
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = token
+        if token_pwd:
+            headers["AuthorizationPwd"] = token_pwd
+        async with self._session.request(
+            method, f"{BASE_URL}{path}", json=body, headers=headers, timeout=TIMEOUT
+        ) as resp:
+            return resp.status, await resp.text()
+
+    async def login(self) -> None:
+        """Authenticate and cache the token pair."""
+        async with self._lock:
+            body = {
+                "emailId": self._email,
+                "hashedPwd": self._hashed,
+                "phoneToken": PHONE_TOKEN,
+                "appSource": "0",
+                "lang": "0",
+            }
+            try:
+                status, text = await self._raw("POST", "/api_v2/login", body, None, None)
+            except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+                raise SolityError(f"connection error: {err}") from err
+
+            try:
+                data = json.loads(text)
+            except ValueError as err:
+                raise SolityError(f"bad login response ({status})") from err
+
+            contents = data.get("contents") or {}
+            if contents.get("loginResult") != 0 or not contents.get("token"):
+                msg = contents.get("loginMessage") or f"loginResult={contents.get('loginResult')}"
+                raise SolityAuthError(msg)
+
+            self._token = contents["token"]
+            self._token_pwd = contents.get("tokenPwd")
+            _LOGGER.debug("Solity login OK")
+
+    async def _authed(self, method: str, path: str, body: dict | None = None) -> dict:
+        if not self._token:
+            await self.login()
+        try:
+            status, text = await self._raw(method, path, body, self._token, self._token_pwd)
+            if status in (401, 403):
+                _LOGGER.debug("Solity %s -> %s, re-login", path, status)
+                await self.login()
+                status, text = await self._raw(method, path, body, self._token, self._token_pwd)
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            raise SolityError(f"connection error: {err}") from err
+
+        if status in (401, 403):
+            raise SolityAuthError(f"HTTP {status}")
+        if status >= 400:
+            raise SolityError(f"HTTP {status}: {text[:200]}")
+        try:
+            return json.loads(text)
+        except ValueError as err:
+            raise SolityError("bad response body") from err
+
+    async def get_devices(self) -> list[dict]:
+        """Return the list of door locks on this account."""
+        data = await self._authed("GET", "/api_v2/myDevice")
+        return ((data.get("contents") or {}).get("myDeviceList")) or []
+
+    async def control(self, device_id: str, control_type: str, option: str = "1") -> dict:
+        """Send a control command (open / close / get_status / ...)."""
+        return await self._authed(
+            "PUT",
+            f"/api_v2/controlDevice/{device_id}",
+            {"controlType": control_type, "optionValue": option},
+        )
+
+    async def get_status(self, device_id: str) -> dict:
+        """Return parsed lock status (deadBolt, battery, counts, ...)."""
+        data = await self.control(device_id, "get_status", "")
+        msg = (data.get("contents") or {}).get("controlDeviceMessage", "{}")
+        try:
+            return json.loads(msg)
+        except (ValueError, TypeError):
+            return {}
+
+    async def retrieve_log(
+        self,
+        device_id: str,
+        length: int = 20,
+        start: int = 0,
+        member_id: str = "",
+        log_type: str = "",
+        timezone: str = "+9:00",
+    ) -> list[dict]:
+        """Return recent access-log entries (cloud-stored, does NOT wake the lock).
+
+        Each entry has logDateTime, logType, logCode, mediaType, nickname,
+        logMessage, etc. Ordered newest-first by the server.
+        """
+        query = urlencode(
+            {
+                "pMemberId": member_id,
+                "pLogType": log_type,
+                "pLogStart": start,
+                "pLogLength": length,
+                "pTimezone": timezone,
+            }
+        )
+        data = await self._authed(
+            "GET", f"/api_v2/retrieveLog/page/{device_id}?{query}"
+        )
+        return ((data.get("contents") or {}).get("retrieveLogList")) or []
+
+    async def open(self, device_id: str) -> dict:
+        """Unlock the door."""
+        return await self.control(device_id, "open", "1")
+
+    async def close(self, device_id: str) -> dict:
+        """Lock the door."""
+        return await self.control(device_id, "close", "1")

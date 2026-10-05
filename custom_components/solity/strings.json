@@ -1,0 +1,55 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Smart Solity",
+        "description": "Enter your Smart Solity account (email / password).",
+        "data": {
+          "email": "Email / ID",
+          "password": "Password"
+        }
+      },
+      "select_device": {
+        "title": "Select door lock",
+        "data": {
+          "device_id": "Door lock"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid ID or password.",
+      "cannot_connect": "Cannot connect to the Smart Solity server.",
+      "no_devices": "No door locks found on this account."
+    },
+    "abort": {
+      "already_configured": "This door lock is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Smart Solity options",
+        "data": {
+          "log_seconds": "Event-log poll interval (seconds)",
+          "status_minutes": "Status/battery poll interval (minutes)"
+        },
+        "description": "Event-log polling (5-600s) reads the cloud log — it does NOT wake the lock, so it can be fast. Status polling (1-1440 min) wakes the lock for battery/deadbolt, so keep it slow."
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery": {
+        "name": "Battery"
+      },
+      "last_access": {
+        "name": "Last access"
+      }
+    },
+    "event": {
+      "door_event": {
+        "name": "Door event"
+      }
+    }
+  }
+}
