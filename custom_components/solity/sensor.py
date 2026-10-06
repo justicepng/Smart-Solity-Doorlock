@@ -39,7 +39,7 @@ async def async_setup_entry(
     data = entry.runtime_data
     async_add_entities(
         [
-            SolityBatterySensor(data.status, entry),
+            SolityBatterySensor(data.status, data.log, entry),
             SolityLastAccessSensor(data.log, entry),
         ]
     )
@@ -65,11 +65,24 @@ class SolityBatterySensor(CoordinatorEntity[SolityStatusCoordinator], RestoreSen
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator: SolityStatusCoordinator, entry: SolityConfigEntry) -> None:
+    def __init__(
+        self,
+        coordinator: SolityStatusCoordinator,
+        log_coord: SolityLogCoordinator,
+        entry: SolityConfigEntry,
+    ) -> None:
         super().__init__(coordinator)
+        self._log_coord = log_coord
         self._attr_unique_id = f"{entry.data[CONF_DEVICE_ID]}_battery"
         self._attr_device_info = _device_info(entry)
         self._restored_battery: int | None = None
+
+    @property
+    def available(self) -> bool:
+        """Keep available as long as we have a restored value or log coordinator is ok."""
+        if self._restored_battery is not None:
+            return True
+        return self._log_coord.last_update_success
 
     async def async_added_to_hass(self) -> None:
         """Handle entity which will be added."""
@@ -117,10 +130,18 @@ class SolityLastAccessSensor(CoordinatorEntity[SolityLogCoordinator], SensorEnti
         if not entry:
             return None
         msg = entry.get("logMessage")
-        if msg:
-            return msg[:255]
         who = entry.get("nickname") or ""
         method_code = str(entry.get("mediaType") or "")
+        
+        # Check inside opening
+        is_inside = (not who) or ("실내" in (msg or "")) or ("수동" in (msg or "")) or (method_code in ("0", "5"))
+        if is_inside:
+            if msg and ("실내" in msg or "수동" in msg):
+                return msg[:255]
+            return "실내에서 문을 열었습니다."
+
+        if msg:
+            return msg[:255]
         method_name = METHOD_MAP.get(method_code, method_code)
         if who and method_name:
             return f"{who} ({method_name})"
@@ -130,12 +151,25 @@ class SolityLastAccessSensor(CoordinatorEntity[SolityLogCoordinator], SensorEnti
     def extra_state_attributes(self) -> dict[str, Any]:
         entry = self._latest or {}
         method_code = str(entry.get("mediaType") or "")
-        method_name = METHOD_MAP.get(method_code, method_code)
+        who = entry.get("nickname") or ""
+        msg = entry.get("logMessage") or ""
+
+        is_inside = (not who) or ("실내" in msg) or ("수동" in msg) or (method_code in ("0", "5"))
+        if is_inside:
+            display_who = "실내"
+            method_name = METHOD_MAP.get(method_code, "실내 개폐")
+            direction = "inside"
+        else:
+            display_who = who
+            method_name = METHOD_MAP.get(method_code, method_code)
+            direction = "outside"
+
         return {
             "datetime": entry.get("logDateTime"),
-            "who": entry.get("nickname"),
+            "who": display_who,
             "method": method_name,
             "method_code": method_code,
+            "direction": direction,
             "log_type": entry.get("logType"),
             "log_code": entry.get("logCode"),
             "message": entry.get("logMessage"),

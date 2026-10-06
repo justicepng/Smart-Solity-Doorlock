@@ -52,8 +52,8 @@ async def async_setup_entry(
 class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, RestoreEntity):
     """A Solity door lock controlled through the cloud API.
 
-    Availability tracks the status coordinator; the live open/close state is
-    layered on top from the log coordinator.
+    Availability tracks the fast log coordinator so the lock remains available
+    even if background get_status polling times out or fails (e.g. asleep lock).
     """
 
     _attr_has_entity_name = True
@@ -83,6 +83,12 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         self._override: bool | None = None  # transient lock state: True=locked, False=unlocked
         self._cancel_revert = None
 
+    @property
+    def available(self) -> bool:
+        """Lock stays available as long as log coordinator is connected."""
+        # Never go unavailable just because get_status failed (battery lock sleep)
+        return self._log_coord.last_update_success
+
     async def async_added_to_hass(self) -> None:
         """Seed the log baseline and subscribe to the fast log coordinator."""
         await super().async_added_to_hass()
@@ -91,13 +97,12 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         last_state = await self.async_get_last_state()
         if last_state is not None and last_state.state in ("locked", "unlocked"):
             self._override = (last_state.state == "locked")
+        else:
+            self._override = True  # Default to locked for auto-locking doorlocks
 
         logs = self._log_coord.data or []
         if logs:
             self._last_log_dt = logs[0].get("logDateTime")
-            # If no state yet and we have logs, auto-lock doorlocks are physically locked
-            if self._override is None:
-                self._override = True
 
         self.async_on_remove(
             self._log_coord.async_add_listener(self._handle_log_update)
@@ -122,7 +127,7 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
 
         self._last_log_dt = newest_dt
         code = str(logs[0].get("logCode"))
-        _LOGGER.debug("Solity new log: code=%s, dt=%s", code, newest_dt)
+        _LOGGER.info("Solity new log detected: code=%s, dt=%s, log=%s", code, newest_dt, logs[0])
 
         if code in (LOG_CODE_OPEN, LOG_CODE_OPEN_LONG):
             self._set_override(False)  # unlocked
@@ -161,10 +166,8 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         value = data.get("deadBolt")
         if value is not None:
             return int(value) == 1
-        # Default for auto-locking doorlocks once active: assume locked
-        if self._last_log_dt is not None:
-            return True
-        return None
+        # Default for auto-locking doorlocks: always physically locked
+        return True
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -172,7 +175,16 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         logs = self._log_coord.data or []
         latest = logs[0] if logs else {}
         method_code = str(latest.get("mediaType") or "")
-        method_name = METHOD_MAP.get(method_code, method_code)
+        who = latest.get("nickname") or ""
+        msg = latest.get("logMessage") or ""
+
+        # Recognize inside opening if no nickname or manual/inside keyword
+        if not who or "실내" in msg or "수동" in msg or method_code in ("0", "5"):
+            display_who = "실내"
+            method_name = METHOD_MAP.get(method_code, "실내 개폐")
+        else:
+            display_who = who
+            method_name = METHOD_MAP.get(method_code, method_code)
 
         attrs = {
             "sub_latch": data.get("subLatch"),
@@ -181,7 +193,7 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
             "password_count": data.get("passwordCount"),
             "fingerprint_count": data.get("fingerPrintCount"),
             "live_state": self._override is not None,
-            "last_access_who": latest.get("nickname"),
+            "last_access_who": display_who,
             "last_access_method": method_name,
             "last_access_time": latest.get("logDateTime"),
         }
@@ -189,18 +201,27 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
 
     async def async_lock(self, **kwargs: Any) -> None:
         """Lock the door."""
-        await self.coordinator.client.close(self._device_id)
+        try:
+            await self.coordinator.client.close(self._device_id)
+        except Exception as err:
+            _LOGGER.warning("Solity remote lock failed (no gateway/bridge or asleep?): %s", err)
         self._set_override(True)
         await self.coordinator.async_request_refresh()
 
     async def async_unlock(self, **kwargs: Any) -> None:
         """Unlock the door."""
-        await self.coordinator.client.open(self._device_id)
+        try:
+            await self.coordinator.client.open(self._device_id)
+        except Exception as err:
+            _LOGGER.warning("Solity remote unlock failed (no gateway/bridge or asleep?): %s", err)
         self._set_override(False)
         await self.coordinator.async_request_refresh()
 
     async def async_open(self, **kwargs: Any) -> None:
         """Open (unlock) the door."""
-        await self.coordinator.client.open(self._device_id)
+        try:
+            await self.coordinator.client.open(self._device_id)
+        except Exception as err:
+            _LOGGER.warning("Solity remote open failed (no gateway/bridge or asleep?): %s", err)
         self._set_override(False)
         await self.coordinator.async_request_refresh()

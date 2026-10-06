@@ -54,20 +54,15 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
                     err,
                 )
                 return self.data
-            _LOGGER.warning("Solity status fetch failed: %s", err)
-            raise UpdateFailed(str(err)) from err
+            _LOGGER.debug("Solity status fetch failed (lock sleeping or no gateway): %s", err)
+            # Return empty dict instead of raising UpdateFailed to avoid flapping entities
+            return self.data or {}
 
         if not data:
-            # HTTP ok but the lock returned no payload (asleep). Same policy.
             self._failures += 1
             if self.data and self._failures <= TOLERATED_STATUS_FAILURES:
-                _LOGGER.debug(
-                    "Solity status empty %s/%s, keeping last data",
-                    self._failures,
-                    TOLERATED_STATUS_FAILURES,
-                )
                 return self.data
-            return data
+            return {}
 
         self._failures = 0
         return data

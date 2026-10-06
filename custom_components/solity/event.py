@@ -106,14 +106,27 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity, Rest
         ]
         for log in reversed(new_entries):
             method_code = str(log.get("mediaType") or "")
-            method_name = METHOD_MAP.get(method_code, method_code)
+            who = log.get("nickname") or ""
+            msg = log.get("logMessage") or ""
+
+            is_inside = (not who) or ("실내" in msg) or ("수동" in msg) or (method_code in ("0", "5"))
+            if is_inside:
+                display_who = "실내"
+                method_name = METHOD_MAP.get(method_code, "실내 개폐")
+                direction = "inside"
+            else:
+                display_who = who
+                method_name = METHOD_MAP.get(method_code, method_code)
+                direction = "outside"
+
             self._trigger_event(
                 _event_type(log.get("logCode")),
                 {
                     "datetime": log.get("logDateTime"),
-                    "who": log.get("nickname"),
+                    "who": display_who,
                     "method": method_name,
                     "method_code": method_code,
+                    "direction": direction,
                     "log_type": log.get("logType"),
                     "log_code": log.get("logCode"),
                     "message": log.get("logMessage"),
@@ -148,6 +161,7 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity, Rest
                 "who": None,
                 "method": METHOD_MAP.get(AUTO_CLOSE_METHOD, AUTO_CLOSE_METHOD),
                 "method_code": AUTO_CLOSE_METHOD,
+                "direction": "auto",
                 "log_type": AUTO_CLOSE_LOG_TYPE,
                 "log_code": LOG_CODE_CLOSE,
                 "message": AUTO_CLOSE_MESSAGE,
