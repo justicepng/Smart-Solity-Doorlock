@@ -83,6 +83,8 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         self._last_log_dt: str | None = None
         self._override: bool | None = None  # transient lock state: True=locked, False=unlocked
         self._cancel_revert = None
+        self._is_locking: bool = False
+        self._is_unlocking: bool = False
 
     @property
     def available(self) -> bool:
@@ -158,8 +160,22 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         self.async_write_ha_state()
 
     @property
+    def is_locking(self) -> bool:
+        """Return True if the lock is currently locking."""
+        return self._is_locking
+
+    @property
+    def is_unlocking(self) -> bool:
+        """Return True if the lock is currently unlocking."""
+        return self._is_unlocking
+
+    @property
     def is_locked(self) -> bool | None:
         """Return True if locked, False if unlocked."""
+        if self._is_unlocking:
+            return False
+        if self._is_locking:
+            return True
         if self._override is not None:
             return self._override
         data = self.coordinator.data or {}
@@ -217,34 +233,47 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         return attrs
 
     async def async_lock(self, **kwargs: Any) -> None:
-        """Lock the door."""
+        """Lock the door with duplicate click guard and progress feedback."""
+        if self._is_locking or self._is_unlocking:
+            _LOGGER.warning("Solity doorlock command already in progress, ignoring duplicate lock request")
+            return
+
+        self._is_locking = True
+        self.async_write_ha_state()
+
         try:
             res = await self.coordinator.client.close(self._device_id)
             _LOGGER.info("Solity lock command response: %s", res)
             self._set_override(True)
-            await self.coordinator.async_request_refresh()
+            await self._log_coord.async_request_refresh()
         except Exception as err:
             _LOGGER.error("Solity remote lock failed: %s", err)
             raise
+        finally:
+            self._is_locking = False
+            self.async_write_ha_state()
 
     async def async_unlock(self, **kwargs: Any) -> None:
-        """Unlock the door."""
+        """Unlock the door with duplicate click guard and progress feedback."""
+        if self._is_unlocking or self._is_locking:
+            _LOGGER.warning("Solity doorlock command already in progress, ignoring duplicate unlock request")
+            return
+
+        self._is_unlocking = True
+        self.async_write_ha_state()
+
         try:
             res = await self.coordinator.client.open(self._device_id)
             _LOGGER.info("Solity unlock command response: %s", res)
             self._set_override(False)
-            await self.coordinator.async_request_refresh()
+            await self._log_coord.async_request_refresh()
         except Exception as err:
             _LOGGER.error("Solity remote unlock failed: %s", err)
             raise
+        finally:
+            self._is_unlocking = False
+            self.async_write_ha_state()
 
     async def async_open(self, **kwargs: Any) -> None:
         """Open (unlock) the door."""
-        try:
-            res = await self.coordinator.client.open(self._device_id)
-            _LOGGER.info("Solity open command response: %s", res)
-            self._set_override(False)
-            await self.coordinator.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Solity remote open failed: %s", err)
-            raise
+        await self.async_unlock(**kwargs)
