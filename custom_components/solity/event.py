@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import logging
+import re
 
 from homeassistant.components.event import EventEntity
 from homeassistant.core import HomeAssistant, callback
@@ -109,13 +110,32 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity, Rest
             who = log.get("nickname") or ""
             msg = log.get("logMessage") or ""
 
-            is_inside = (not who) or ("실내" in msg) or ("수동" in msg) or (method_code in ("0", "5"))
-            if is_inside:
-                display_who = "실내"
+            is_remote = (method_code in ("6", "7")) or ("원격" in msg)
+            is_app = (method_code == "4") or ("앱" in msg) or ("스마트폰" in msg)
+            is_inside = (not is_remote) and (not is_app) and (("실내" in msg) or ("수동" in msg) or (not who and method_code in ("0", "5")))
+
+            display_who = who
+            if not display_who and msg:
+                m = re.match(r"^(.+?)님이", msg)
+                if m:
+                    display_who = m.group(1).strip()
+
+            if is_remote:
+                method_name = "원격 열기"
+                direction = "remote"
+                if not display_who:
+                    display_who = "원격 제어"
+            elif is_app:
+                method_name = "스마트폰 앱"
+                direction = "outside"
+                if not display_who:
+                    display_who = "스마트폰 앱"
+            elif is_inside:
                 method_name = METHOD_MAP.get(method_code, "실내 개폐")
                 direction = "inside"
+                if not display_who:
+                    display_who = "실내"
             else:
-                display_who = who
                 method_name = METHOD_MAP.get(method_code, method_code)
                 direction = "outside"
 

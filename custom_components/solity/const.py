@@ -58,13 +58,14 @@ EVENT_TYPES = [EVENT_OPEN, EVENT_CLOSE, EVENT_OTHER]
 
 # Solity mediaType (access method) mapping to Korean names
 METHOD_MAP: dict[str, str] = {
-    "0": "실내 수동 개폐",
+    "0": "실내 개폐",
     "1": "비밀번호",
     "2": "카드키",
     "3": "지문",
     "4": "스마트폰 앱",
-    "5": "실내 레버/버튼",
+    "5": "실내 수동 개폐",
     "6": "원격 제어",
+    "7": "원격 열기",
     "15": "얼굴인식",
     "auto": "자동잠김",
 }

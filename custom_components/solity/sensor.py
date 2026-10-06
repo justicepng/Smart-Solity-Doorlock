@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -129,23 +130,17 @@ class SolityLastAccessSensor(CoordinatorEntity[SolityLogCoordinator], SensorEnti
         entry = self._latest
         if not entry:
             return None
+        # Always prefer full server-provided message if available
         msg = entry.get("logMessage")
-        who = entry.get("nickname") or ""
-        method_code = str(entry.get("mediaType") or "")
-        
-        # Check inside opening
-        is_inside = (not who) or ("실내" in (msg or "")) or ("수동" in (msg or "")) or (method_code in ("0", "5"))
-        if is_inside:
-            if msg and ("실내" in msg or "수동" in msg):
-                return msg[:255]
-            return "실내에서 문을 열었습니다."
-
         if msg:
             return msg[:255]
+
+        who = entry.get("nickname") or ""
+        method_code = str(entry.get("mediaType") or "")
         method_name = METHOD_MAP.get(method_code, method_code)
         if who and method_name:
             return f"{who} ({method_name})"
-        return (f"{who} {method_name}".strip() or None)
+        return (who or method_name or None)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -154,13 +149,34 @@ class SolityLastAccessSensor(CoordinatorEntity[SolityLogCoordinator], SensorEnti
         who = entry.get("nickname") or ""
         msg = entry.get("logMessage") or ""
 
-        is_inside = (not who) or ("실내" in msg) or ("수동" in msg) or (method_code in ("0", "5"))
-        if is_inside:
-            display_who = "실내"
+        # Direction and method detection
+        is_remote = (method_code in ("6", "7")) or ("원격" in msg)
+        is_app = (method_code == "4") or ("앱" in msg) or ("스마트폰" in msg)
+        is_inside = (not is_remote) and (not is_app) and (("실내" in msg) or ("수동" in msg) or (not who and method_code in ("0", "5")))
+
+        # Try to parse who from message if nickname is empty (e.g. "정의평님이 원격으로 도어락을 열었습니다. (G)")
+        display_who = who
+        if not display_who and msg:
+            m = re.match(r"^(.+?)님이", msg)
+            if m:
+                display_who = m.group(1).strip()
+
+        if is_remote:
+            method_name = "원격 열기"
+            direction = "remote"
+            if not display_who:
+                display_who = "원격 제어"
+        elif is_app:
+            method_name = "스마트폰 앱"
+            direction = "outside"
+            if not display_who:
+                display_who = "스마트폰 앱"
+        elif is_inside:
             method_name = METHOD_MAP.get(method_code, "실내 개폐")
             direction = "inside"
+            if not display_who:
+                display_who = "실내"
         else:
-            display_who = who
             method_name = METHOD_MAP.get(method_code, method_code)
             direction = "outside"
 

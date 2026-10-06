@@ -10,6 +10,7 @@ almost immediately, so this provides accurate activity windows.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from homeassistant.components.lock import LockEntity, LockEntityFeature
@@ -86,7 +87,6 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
     @property
     def available(self) -> bool:
         """Lock stays available as long as log coordinator is connected."""
-        # Never go unavailable just because get_status failed (battery lock sleep)
         return self._log_coord.last_update_success
 
     async def async_added_to_hass(self) -> None:
@@ -178,12 +178,29 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         who = latest.get("nickname") or ""
         msg = latest.get("logMessage") or ""
 
-        # Recognize inside opening if no nickname or manual/inside keyword
-        if not who or "실내" in msg or "수동" in msg or method_code in ("0", "5"):
-            display_who = "실내"
+        is_remote = (method_code in ("6", "7")) or ("원격" in msg)
+        is_app = (method_code == "4") or ("앱" in msg) or ("스마트폰" in msg)
+        is_inside = (not is_remote) and (not is_app) and (("실내" in msg) or ("수동" in msg) or (not who and method_code in ("0", "5")))
+
+        display_who = who
+        if not display_who and msg:
+            m = re.match(r"^(.+?)님이", msg)
+            if m:
+                display_who = m.group(1).strip()
+
+        if is_remote:
+            method_name = "원격 열기"
+            if not display_who:
+                display_who = "원격 제어"
+        elif is_app:
+            method_name = "스마트폰 앱"
+            if not display_who:
+                display_who = "스마트폰 앱"
+        elif is_inside:
             method_name = METHOD_MAP.get(method_code, "실내 개폐")
+            if not display_who:
+                display_who = "실내"
         else:
-            display_who = who
             method_name = METHOD_MAP.get(method_code, method_code)
 
         attrs = {
@@ -202,26 +219,32 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
     async def async_lock(self, **kwargs: Any) -> None:
         """Lock the door."""
         try:
-            await self.coordinator.client.close(self._device_id)
+            res = await self.coordinator.client.close(self._device_id)
+            _LOGGER.info("Solity lock command response: %s", res)
+            self._set_override(True)
+            await self.coordinator.async_request_refresh()
         except Exception as err:
-            _LOGGER.warning("Solity remote lock failed (no gateway/bridge or asleep?): %s", err)
-        self._set_override(True)
-        await self.coordinator.async_request_refresh()
+            _LOGGER.error("Solity remote lock failed: %s", err)
+            raise
 
     async def async_unlock(self, **kwargs: Any) -> None:
         """Unlock the door."""
         try:
-            await self.coordinator.client.open(self._device_id)
+            res = await self.coordinator.client.open(self._device_id)
+            _LOGGER.info("Solity unlock command response: %s", res)
+            self._set_override(False)
+            await self.coordinator.async_request_refresh()
         except Exception as err:
-            _LOGGER.warning("Solity remote unlock failed (no gateway/bridge or asleep?): %s", err)
-        self._set_override(False)
-        await self.coordinator.async_request_refresh()
+            _LOGGER.error("Solity remote unlock failed: %s", err)
+            raise
 
     async def async_open(self, **kwargs: Any) -> None:
         """Open (unlock) the door."""
         try:
-            await self.coordinator.client.open(self._device_id)
+            res = await self.coordinator.client.open(self._device_id)
+            _LOGGER.info("Solity open command response: %s", res)
+            self._set_override(False)
+            await self.coordinator.async_request_refresh()
         except Exception as err:
-            _LOGGER.warning("Solity remote open failed (no gateway/bridge or asleep?): %s", err)
-        self._set_override(False)
-        await self.coordinator.async_request_refresh()
+            _LOGGER.error("Solity remote open failed: %s", err)
+            raise
