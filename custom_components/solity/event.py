@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 from datetime import datetime
+import logging
 
 from homeassistant.components.event import EventEntity
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import SolityConfigEntry
@@ -28,9 +30,12 @@ from .const import (
     LOG_CODE_OPEN,
     LOG_CODE_OPEN_LONG,
     MANUFACTURER,
+    METHOD_MAP,
     MODEL,
 )
 from .coordinator import SolityLogCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -43,14 +48,15 @@ async def async_setup_entry(
 
 
 def _event_type(log_code: str | None) -> str:
-    if log_code in (LOG_CODE_OPEN, LOG_CODE_OPEN_LONG):
+    code = str(log_code)
+    if code in (LOG_CODE_OPEN, LOG_CODE_OPEN_LONG):
         return EVENT_OPEN
-    if log_code == LOG_CODE_CLOSE:
+    if code == LOG_CODE_CLOSE:
         return EVENT_CLOSE
     return EVENT_OTHER
 
 
-class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity):
+class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity, RestoreEntity):
     """Fires an HA event for every new access-log entry (open/close/other)."""
 
     _attr_has_entity_name = True
@@ -60,9 +66,10 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity):
 
     def __init__(self, coordinator: SolityLogCoordinator, entry: SolityConfigEntry) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"{entry.data[CONF_DEVICE_ID]}_door_event"
+        self._device_id = entry.data[CONF_DEVICE_ID]
+        self._attr_unique_id = f"{self._device_id}_door_event"
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, entry.data[CONF_DEVICE_ID])},
+            identifiers={(DOMAIN, self._device_id)},
             name=entry.data.get(CONF_NICKNAME) or "Solity Doorlock",
             manufacturer=MANUFACTURER,
             model=MODEL,
@@ -98,12 +105,15 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity):
             if (log.get("logDateTime") or "") > self._last_dt
         ]
         for log in reversed(new_entries):
+            method_code = str(log.get("mediaType") or "")
+            method_name = METHOD_MAP.get(method_code, method_code)
             self._trigger_event(
                 _event_type(log.get("logCode")),
                 {
                     "datetime": log.get("logDateTime"),
                     "who": log.get("nickname"),
-                    "method": log.get("mediaType"),
+                    "method": method_name,
+                    "method_code": method_code,
                     "log_type": log.get("logType"),
                     "log_code": log.get("logCode"),
                     "message": log.get("logMessage"),
@@ -136,7 +146,8 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity):
             {
                 "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "who": None,
-                "method": AUTO_CLOSE_METHOD,
+                "method": METHOD_MAP.get(AUTO_CLOSE_METHOD, AUTO_CLOSE_METHOD),
+                "method_code": AUTO_CLOSE_METHOD,
                 "log_type": AUTO_CLOSE_LOG_TYPE,
                 "log_code": LOG_CODE_CLOSE,
                 "message": AUTO_CLOSE_MESSAGE,

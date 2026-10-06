@@ -21,7 +21,8 @@ _LOGGER = logging.getLogger(__name__)
 
 BASE_URL = "https://www.smartsolity.com"
 PHONE_TOKEN = "ha-solity"  # a stable, HA-dedicated device id (own session)
-TIMEOUT = aiohttp.ClientTimeout(total=15)
+DEFAULT_TIMEOUT = aiohttp.ClientTimeout(total=15)
+CONTROL_TIMEOUT = aiohttp.ClientTimeout(total=20)
 
 
 def hash_password(password: str) -> str:
@@ -60,6 +61,7 @@ class SolityClient:
         body: dict | None,
         token: str | None,
         token_pwd: str | None,
+        timeout: aiohttp.ClientTimeout = DEFAULT_TIMEOUT,
     ) -> tuple[int, str]:
         headers = {"Content-Type": "application/json"}
         if token:
@@ -67,7 +69,7 @@ class SolityClient:
         if token_pwd:
             headers["AuthorizationPwd"] = token_pwd
         async with self._session.request(
-            method, f"{BASE_URL}{path}", json=body, headers=headers, timeout=TIMEOUT
+            method, f"{BASE_URL}{path}", json=body, headers=headers, timeout=timeout
         ) as resp:
             return resp.status, await resp.text()
 
@@ -100,15 +102,21 @@ class SolityClient:
             self._token_pwd = contents.get("tokenPwd")
             _LOGGER.debug("Solity login OK")
 
-    async def _authed(self, method: str, path: str, body: dict | None = None) -> dict:
+    async def _authed(
+        self,
+        method: str,
+        path: str,
+        body: dict | None = None,
+        timeout: aiohttp.ClientTimeout = DEFAULT_TIMEOUT,
+    ) -> dict:
         if not self._token:
             await self.login()
         try:
-            status, text = await self._raw(method, path, body, self._token, self._token_pwd)
+            status, text = await self._raw(method, path, body, self._token, self._token_pwd, timeout)
             if status in (401, 403):
                 _LOGGER.debug("Solity %s -> %s, re-login", path, status)
                 await self.login()
-                status, text = await self._raw(method, path, body, self._token, self._token_pwd)
+                status, text = await self._raw(method, path, body, self._token, self._token_pwd, timeout)
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             raise SolityError(f"connection error: {err}") from err
 
@@ -132,6 +140,7 @@ class SolityClient:
             "PUT",
             f"/api_v2/controlDevice/{device_id}",
             {"controlType": control_type, "optionValue": option},
+            timeout=CONTROL_TIMEOUT,
         )
 
     async def get_status(self, device_id: str) -> dict:

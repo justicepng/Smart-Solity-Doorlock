@@ -10,7 +10,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import SolityAuthError, SolityClient, SolityError
-from .const import DOMAIN, TOLERATED_STATUS_FAILURES
+from .const import DOMAIN, TOLERATED_LOG_FAILURES, TOLERATED_STATUS_FAILURES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,6 +54,7 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
                     err,
                 )
                 return self.data
+            _LOGGER.warning("Solity status fetch failed: %s", err)
             raise UpdateFailed(str(err)) from err
 
         if not data:
@@ -92,11 +93,24 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
         self.config_entry = entry
         self.client = client
         self.device_id = device_id
+        self._failures = 0
 
     async def _async_update_data(self) -> list[dict]:
         try:
-            return await self.client.retrieve_log(self.device_id, length=20)
+            data = await self.client.retrieve_log(self.device_id, length=20)
+            self._failures = 0
+            return data
         except SolityAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except SolityError as err:
+            self._failures += 1
+            if self.data and self._failures <= TOLERATED_LOG_FAILURES:
+                _LOGGER.debug(
+                    "Solity log miss %s/%s, keeping last data: %s",
+                    self._failures,
+                    TOLERATED_LOG_FAILURES,
+                    err,
+                )
+                return self.data
+            _LOGGER.warning("Solity log fetch failed: %s", err)
             raise UpdateFailed(str(err)) from err

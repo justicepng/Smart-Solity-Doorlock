@@ -1,9 +1,11 @@
 """Sensor platform for Smart Solity (battery + last access)."""
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
     SensorStateClass,
@@ -15,8 +17,17 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import SolityConfigEntry
-from .const import CONF_DEVICE_ID, CONF_NICKNAME, DOMAIN, MANUFACTURER, MODEL
+from .const import (
+    CONF_DEVICE_ID,
+    CONF_NICKNAME,
+    DOMAIN,
+    MANUFACTURER,
+    METHOD_MAP,
+    MODEL,
+)
 from .coordinator import SolityLogCoordinator, SolityStatusCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -44,7 +55,7 @@ def _device_info(entry: SolityConfigEntry) -> DeviceInfo:
     )
 
 
-class SolityBatterySensor(CoordinatorEntity[SolityStatusCoordinator], SensorEntity):
+class SolityBatterySensor(CoordinatorEntity[SolityStatusCoordinator], RestoreSensor):
     """Battery level reported by the door lock."""
 
     _attr_has_entity_name = True
@@ -58,11 +69,29 @@ class SolityBatterySensor(CoordinatorEntity[SolityStatusCoordinator], SensorEnti
         super().__init__(coordinator)
         self._attr_unique_id = f"{entry.data[CONF_DEVICE_ID]}_battery"
         self._attr_device_info = _device_info(entry)
+        self._restored_battery: int | None = None
+
+    async def async_added_to_hass(self) -> None:
+        """Handle entity which will be added."""
+        await super().async_added_to_hass()
+        if (last_state := await self.async_get_last_sensor_data()) is not None:
+            try:
+                if last_state.native_value is not None:
+                    self._restored_battery = int(last_state.native_value)
+            except (ValueError, TypeError):
+                pass
 
     @property
     def native_value(self) -> int | None:
         value = (self.coordinator.data or {}).get("battery")
-        return int(value) if value is not None else None
+        if value is not None:
+            try:
+                parsed = int(value)
+                self._restored_battery = parsed
+                return parsed
+            except (ValueError, TypeError):
+                pass
+        return self._restored_battery
 
 
 class SolityLastAccessSensor(CoordinatorEntity[SolityLogCoordinator], SensorEntity):
@@ -87,21 +116,26 @@ class SolityLastAccessSensor(CoordinatorEntity[SolityLogCoordinator], SensorEnti
         entry = self._latest
         if not entry:
             return None
-        # Human-readable message if present, else compose who/how.
         msg = entry.get("logMessage")
         if msg:
             return msg[:255]
         who = entry.get("nickname") or ""
-        how = entry.get("mediaType") or ""
-        return (f"{who} {how}".strip() or None)
+        method_code = str(entry.get("mediaType") or "")
+        method_name = METHOD_MAP.get(method_code, method_code)
+        if who and method_name:
+            return f"{who} ({method_name})"
+        return (f"{who} {method_name}".strip() or None)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         entry = self._latest or {}
+        method_code = str(entry.get("mediaType") or "")
+        method_name = METHOD_MAP.get(method_code, method_code)
         return {
             "datetime": entry.get("logDateTime"),
             "who": entry.get("nickname"),
-            "method": entry.get("mediaType"),
+            "method": method_name,
+            "method_code": method_code,
             "log_type": entry.get("logType"),
             "log_code": entry.get("logCode"),
             "message": entry.get("logMessage"),
