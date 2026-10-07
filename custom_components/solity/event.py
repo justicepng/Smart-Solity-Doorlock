@@ -134,9 +134,9 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity, Rest
 
         if new_entries:
             self._last_dt = logs[0].get("logDateTime")
-            # The device logs opens only. If the newest event is an open,
+            # The device logs opens only. If the newest event is an open (not open-long),
             # schedule a synthesized 'close' to mark the auto-lock.
-            if _event_type(logs[0].get("logCode")) == EVENT_OPEN:
+            if str(logs[0].get("logCode")) == LOG_CODE_OPEN:
                 self._schedule_auto_close()
 
         super()._handle_coordinator_update()

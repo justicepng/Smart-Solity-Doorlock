@@ -131,6 +131,12 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         )
 
     @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from status coordinator (hardware ground truth)."""
+        self._override = None
+        super()._handle_coordinator_update()
+
+    @callback
     def _handle_log_update(self) -> None:
         """React to a brand-new access-log entry (newest-first list)."""
         logs = self._log_coord.data or []
@@ -151,8 +157,15 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         code = str(logs[0].get("logCode"))
         _LOGGER.info("Solity new log detected: code=%s, dt=%s, log=%s", code, newest_dt, logs[0])
 
-        if code in (LOG_CODE_OPEN, LOG_CODE_OPEN_LONG):
+        if code == LOG_CODE_OPEN:
             self._set_override(False)  # unlocked
+        elif code == LOG_CODE_OPEN_LONG:
+            # Door left open too long: keep unlocked state without auto-revert
+            self._override = False
+            if self._cancel_revert is not None:
+                self._cancel_revert()
+                self._cancel_revert = None
+            self.async_write_ha_state()
         elif code == LOG_CODE_CLOSE:
             self._set_override(True)  # locked
 
@@ -199,6 +212,9 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         if self._override is not None:
             return self._override
         data = self.coordinator.data or {}
+        sub_latch = data.get("subLatch")
+        if sub_latch is not None and int(sub_latch) == 0:
+            return False
         value = data.get("deadBolt")
         if value is not None:
             return int(value) == 1
@@ -215,9 +231,16 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         control_mode = self._entry.options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)
         ble_mac = self._entry.options.get(CONF_BLE_MAC) or self.coordinator.ble_mac
 
+        sub_latch = data.get("subLatch")
+        dead_bolt = data.get("deadBolt")
+        is_unclosed = False
+        if sub_latch is not None:
+            is_unclosed = (int(sub_latch) == 0) or (dead_bolt is not None and int(dead_bolt) == 0)
+
         attrs = {
-            "sub_latch": data.get("subLatch"),
+            "sub_latch": sub_latch,
             "system_mode": data.get("systemMode"),
+            "is_unclosed": is_unclosed,
             "card_count": data.get("cardCount"),
             "password_count": data.get("passwordCount"),
             "fingerprint_count": data.get("fingerPrintCount"),
