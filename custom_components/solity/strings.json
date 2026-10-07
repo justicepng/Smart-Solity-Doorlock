@@ -36,7 +36,7 @@
           "status_minutes": "Status/battery poll interval (minutes)",
           "auto_close_seconds": "Auto-lock close delay (seconds)"
         },
-        "description": "Configure control mode (Cloud, Bluetooth Proxy, Hybrid) and poll intervals. Face recognition nicknames are automatically synchronized with the Solity Cloud app."
+        "description": "Configure control mode (Cloud, Bluetooth Proxy, Hybrid) and poll intervals. Face recognition nicknames are automatically synchronized with the Solity Cloud app and default configuration."
       }
     }
   },

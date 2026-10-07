@@ -109,12 +109,38 @@ SOLITY_BLE_WRITE_UUID = "48400002-B5A3-F393-E0A9-E50E24DCCA9E"
 SOLITY_BLE_NOTIFY_UUID = "48400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
 
+# Default mapping of face recognition keys to user names (household members)
+DEFAULT_FACE_MAP: dict[str, str] = {
+    "1": "정의평",
+    "2": "정상수",
+    "3": "정유진",
+    "4": "유경선",
+    "5": "유경선",
+    "6": "정의평",
+    "7": "정상수",
+}
+
+
 def get_face_map(
     options: dict[str, Any] | None = None,
     server_map: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Return mapping of face key numbers ('1'..'7') to names from Solity Cloud."""
-    return dict(server_map or {})
+    """Return mapping of face key numbers ('1'..'7') to names.
+
+    Combines built-in defaults, cloud nicknames (Solity app),
+    and user options if configured.
+    """
+    result = dict(DEFAULT_FACE_MAP)
+    if server_map:
+        for k, v in server_map.items():
+            if v and str(v).strip():
+                result[str(k)] = str(v).strip()
+    if options:
+        for k in range(1, 8):
+            val = options.get(f"face_name_{k}")
+            if val and str(val).strip():
+                result[str(k)] = str(val).strip()
+    return result
 
 
 
@@ -127,17 +153,32 @@ def format_access_log(entry: dict, face_map: dict[str, str] | None = None) -> di
 
     # 1. Resolve registered face recognition if custom names are mapped
     is_face = (method_code == "15") or ("얼굴" in msg)
-    if is_face and face_map:
-        for k, name in face_map.items():
-            if f"{k}번" in msg and "얼굴" in msg:
-                who = name
-                msg = re.sub(
-                    rf"{k}번\s*얼굴(?:인식)?(?:으로)?(?:\s*도어락을)?\s*열었습니다(?:\.\s*\(G\))?",
-                    f"{name}님의 얼굴인식으로 열었습니다.",
-                    msg,
-                )
-                msg = msg.replace(f"{k}번 얼굴인식", f"{name}님의 얼굴인식")
-                break
+    if is_face:
+        mapping = face_map if face_map is not None else DEFAULT_FACE_MAP
+        if mapping:
+            for k, name in mapping.items():
+                pattern = rf"{k}번\s*얼굴(?:인식)?"
+                if re.search(pattern, msg):
+                    who = name
+                    # 1) Full phrasing: "1번 얼굴인식으로 도어락을 열었습니다" -> "{name}님의 얼굴인식으로 도어락을 열었습니다"
+                    msg = re.sub(
+                        rf"{k}번\s*얼굴(?:인식)?으로\s*도어락을\s*열었습니다",
+                        f"{name}님의 얼굴인식으로 도어락을 열었습니다",
+                        msg,
+                    )
+                    # 2) Phrasing with open: "1번 얼굴인식으로 열었습니다" -> "{name}님의 얼굴인식으로 열었습니다"
+                    msg = re.sub(
+                        rf"{k}번\s*얼굴(?:인식)?으로\s*열었습니다",
+                        f"{name}님의 얼굴인식으로 열었습니다",
+                        msg,
+                    )
+                    # 3) Standalone: "1번 얼굴인식" or "1번 얼굴" -> "{name}님의 얼굴인식"
+                    msg = re.sub(
+                        rf"{k}번\s*얼굴(?:인식)?",
+                        f"{name}님의 얼굴인식",
+                        msg,
+                    )
+                    break
 
     # 2. Parse who from message if nickname empty
     display_who = who

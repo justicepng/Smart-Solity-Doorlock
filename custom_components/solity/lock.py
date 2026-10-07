@@ -153,9 +153,15 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         if newest_dt <= self._last_log_dt:
             return
 
-        self._last_log_dt = newest_dt
-        code = str(logs[0].get("logCode"))
-        _LOGGER.info("Solity new log detected: code=%s, dt=%s, log=%s", code, newest_dt, logs[0])
+        parsed = format_access_log(logs[0], self._face_map)
+        _LOGGER.info(
+            "Solity new log detected: code=%s, dt=%s, who=%s, method=%s, message=%s",
+            code,
+            newest_dt,
+            parsed.get("who"),
+            parsed.get("method"),
+            parsed.get("message"),
+        )
 
         if code == LOG_CODE_OPEN:
             self._set_override(False)  # unlocked

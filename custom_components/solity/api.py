@@ -189,25 +189,27 @@ class SolityClient:
         return await self.control(device_id, "close", "1")
 
     async def get_face_nicknames(self, device_id: str, member_id: str) -> dict[str, str]:
-        """Fetch registered face nicknames from Solity Cloud (addrType=7)."""
+        """Fetch registered face nicknames from Solity Cloud."""
         if not member_id:
             return {}
-        try:
-            body = {
-                "memberId": member_id,
-                "deviceId": device_id,
-                "addrType": 7,
-            }
-            data = await self._authed("POST", "/api_v2/addrNickname", body)
-            nickname_list = (data.get("contents") or {}).get("nicknameList") or []
-            mapping: dict[str, str] = {}
-            for item in nickname_list:
-                addr = item.get("addr")
-                nickname = item.get("nickname")
-                if addr is not None and nickname:
-                    mapping[str(addr)] = str(nickname).strip()
-            return mapping
-        except Exception as err:
-            _LOGGER.debug("Failed to fetch face nicknames from server: %s", err)
-            return {}
+        mapping: dict[str, str] = {}
+        for addr_type in (7, 15, 0):
+            try:
+                body = {
+                    "memberId": member_id,
+                    "deviceId": device_id,
+                    "addrType": addr_type,
+                }
+                data = await self._authed("POST", "/api_v2/addrNickname", body)
+                nickname_list = (data.get("contents") or {}).get("nicknameList") or []
+                for item in nickname_list:
+                    addr = item.get("addr")
+                    nickname = item.get("nickname")
+                    if addr is not None and nickname:
+                        mapping[str(addr)] = str(nickname).strip()
+                if mapping:
+                    break
+            except Exception as err:
+                _LOGGER.debug("Failed to fetch face nicknames (addrType=%s): %s", addr_type, err)
+        return mapping
 
