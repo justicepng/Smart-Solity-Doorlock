@@ -22,11 +22,18 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import SolityConfigEntry
+from .ble import SolityBleClient
 from .const import (
     CONF_AUTO_CLOSE_SECONDS,
+    CONF_BLE_APP_KEY,
+    CONF_BLE_MAC,
+    CONF_CONTROL_MODE,
     CONF_DEVICE_ID,
     CONF_NICKNAME,
+    CONTROL_MODE_BLUETOOTH,
+    CONTROL_MODE_HYBRID,
     DEFAULT_AUTO_CLOSE_SECONDS,
+    DEFAULT_CONTROL_MODE,
     DOMAIN,
     LOG_CODE_CLOSE,
     LOG_CODE_OPEN,
@@ -88,10 +95,16 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         self._cancel_revert = None
         self._is_locking: bool = False
         self._is_unlocking: bool = False
+        self._ble_client = SolityBleClient(
+            hass=status_coord.hass,
+            ble_mac=entry.options.get(CONF_BLE_MAC) or entry.data.get(CONF_BLE_MAC) or "",
+            app_key=entry.data.get(CONF_BLE_APP_KEY),
+        )
 
     @property
     def _face_map(self) -> dict[str, str]:
-        return get_face_map(self._entry.options)
+        return get_face_map(self._entry.options, self.coordinator.face_nicknames)
+
 
     @property
     def available(self) -> bool:
@@ -199,6 +212,9 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         latest = logs[0] if logs else {}
         parsed = format_access_log(latest, self._face_map)
 
+        control_mode = self._entry.options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)
+        ble_mac = self._entry.options.get(CONF_BLE_MAC) or self.coordinator.ble_mac
+
         attrs = {
             "sub_latch": data.get("subLatch"),
             "system_mode": data.get("systemMode"),
@@ -206,6 +222,9 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
             "password_count": data.get("passwordCount"),
             "fingerprint_count": data.get("fingerPrintCount"),
             "live_state": self._override is not None,
+            "control_mode": control_mode,
+            "ble_mac": ble_mac,
+            "ble_available": self._ble_client.is_available() if ble_mac else False,
             "last_access_who": parsed["who"],
             "last_access_method": parsed["method"],
             "last_access_time": latest.get("logDateTime"),
@@ -213,7 +232,7 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         return attrs
 
     async def async_lock(self, **kwargs: Any) -> None:
-        """Lock the door with duplicate click guard and progress feedback."""
+        """Lock the door with duplicate click guard, BLE proxy support, and progress feedback."""
         if self._is_locking or self._is_unlocking:
             _LOGGER.warning("Solity doorlock command already in progress, ignoring duplicate lock request")
             return
@@ -221,20 +240,45 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         self._is_locking = True
         self.async_write_ha_state()
 
-        try:
-            res = await self.coordinator.client.close(self._device_id)
-            _LOGGER.info("Solity lock command response: %s", res)
-            self._set_override(True)
-            await self._log_coord.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Solity remote lock failed: %s", err)
-            raise
-        finally:
+        control_mode = self._entry.options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)
+        ble_mac = self._entry.options.get(CONF_BLE_MAC) or self.coordinator.ble_mac
+        ble_success = False
+
+        if control_mode in (CONTROL_MODE_BLUETOOTH, CONTROL_MODE_HYBRID) and ble_mac:
+            if self._ble_client.ble_mac != ble_mac.upper().strip():
+                self._ble_client.ble_mac = ble_mac.upper().strip()
+            try:
+                _LOGGER.info("Locking Solity doorlock via Bluetooth proxy (%s)...", ble_mac)
+                await self._ble_client.close()
+                ble_success = True
+                _LOGGER.info("Bluetooth proxy lock succeeded")
+            except Exception as err:
+                _LOGGER.warning("Bluetooth proxy lock failed: %s", err)
+                if control_mode == CONTROL_MODE_BLUETOOTH:
+                    self._is_locking = False
+                    self.async_write_ha_state()
+                    raise
+
+        if not ble_success:
+            try:
+                _LOGGER.info("Locking Solity doorlock via Cloud API...")
+                res = await self.coordinator.client.close(self._device_id)
+                _LOGGER.info("Solity cloud lock command response: %s", res)
+            except Exception as err:
+                _LOGGER.error("Solity cloud lock failed: %s", err)
+                raise
+            finally:
+                self._is_locking = False
+                self.async_write_ha_state()
+        else:
             self._is_locking = False
             self.async_write_ha_state()
 
+        self._set_override(True)
+        await self._log_coord.async_request_refresh()
+
     async def async_unlock(self, **kwargs: Any) -> None:
-        """Unlock the door with duplicate click guard and progress feedback."""
+        """Unlock the door with duplicate click guard, BLE proxy support, and progress feedback."""
         if self._is_unlocking or self._is_locking:
             _LOGGER.warning("Solity doorlock command already in progress, ignoring duplicate unlock request")
             return
@@ -242,17 +286,43 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         self._is_unlocking = True
         self.async_write_ha_state()
 
-        try:
-            res = await self.coordinator.client.open(self._device_id)
-            _LOGGER.info("Solity unlock command response: %s", res)
-            self._set_override(False)
-            await self._log_coord.async_request_refresh()
-        except Exception as err:
-            _LOGGER.error("Solity remote unlock failed: %s", err)
-            raise
-        finally:
+        control_mode = self._entry.options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)
+        ble_mac = self._entry.options.get(CONF_BLE_MAC) or self.coordinator.ble_mac
+        ble_success = False
+
+        if control_mode in (CONTROL_MODE_BLUETOOTH, CONTROL_MODE_HYBRID) and ble_mac:
+            if self._ble_client.ble_mac != ble_mac.upper().strip():
+                self._ble_client.ble_mac = ble_mac.upper().strip()
+            try:
+                _LOGGER.info("Unlocking Solity doorlock via Bluetooth proxy (%s)...", ble_mac)
+                await self._ble_client.open()
+                ble_success = True
+                _LOGGER.info("Bluetooth proxy unlock succeeded")
+            except Exception as err:
+                _LOGGER.warning("Bluetooth proxy unlock failed: %s", err)
+                if control_mode == CONTROL_MODE_BLUETOOTH:
+                    self._is_unlocking = False
+                    self.async_write_ha_state()
+                    raise
+
+        if not ble_success:
+            try:
+                _LOGGER.info("Unlocking Solity doorlock via Cloud API...")
+                res = await self.coordinator.client.open(self._device_id)
+                _LOGGER.info("Solity cloud unlock command response: %s", res)
+            except Exception as err:
+                _LOGGER.error("Solity cloud unlock failed: %s", err)
+                raise
+            finally:
+                self._is_unlocking = False
+                self.async_write_ha_state()
+        else:
             self._is_unlocking = False
             self.async_write_ha_state()
+
+        self._set_override(False)
+        await self._log_coord.async_request_refresh()
+
 
     async def async_open(self, **kwargs: Any) -> None:
         """Open (unlock) the door."""

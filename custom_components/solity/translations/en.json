@@ -30,18 +30,20 @@
       "init": {
         "title": "Smart Solity options",
         "data": {
+          "control_mode": "Control Mode",
+          "ble_mac": "Doorlock Bluetooth MAC address (optional)",
           "log_seconds": "Event-log poll interval (seconds)",
           "status_minutes": "Status/battery poll interval (minutes)",
           "auto_close_seconds": "Auto-lock close delay (seconds)",
-          "face_name_1": "Face #1 custom name (optional)",
-          "face_name_2": "Face #2 custom name (optional)",
-          "face_name_3": "Face #3 custom name (optional)",
-          "face_name_4": "Face #4 custom name (optional)",
-          "face_name_5": "Face #5 custom name (optional)",
-          "face_name_6": "Face #6 custom name (optional)",
-          "face_name_7": "Face #7 custom name (optional)"
+          "face_name_1": "Face #1 custom name (override, optional)",
+          "face_name_2": "Face #2 custom name (override, optional)",
+          "face_name_3": "Face #3 custom name (override, optional)",
+          "face_name_4": "Face #4 custom name (override, optional)",
+          "face_name_5": "Face #5 custom name (override, optional)",
+          "face_name_6": "Face #6 custom name (override, optional)",
+          "face_name_7": "Face #7 custom name (override, optional)"
         },
-        "description": "Configure polling intervals and auto-lock delay. Setting custom names for face recognition keys (1-7) will automatically display real user names in access logs and notifications."
+        "description": "Configure control mode (Cloud, Bluetooth Proxy, Hybrid) and intervals. Face recognition names are synced automatically from Solity Cloud and can be manually overridden above."
       }
     }
   },

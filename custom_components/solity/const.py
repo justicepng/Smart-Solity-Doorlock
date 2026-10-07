@@ -93,16 +93,38 @@ CONF_FACE_FIELDS: list[str] = [
 ]
 
 
-def get_face_map(options: dict[str, Any] | None) -> dict[str, str]:
-    """Return mapping of face key numbers ('1'..'7') to custom names configured in options."""
-    if not options:
-        return {}
-    face_map: dict[str, str] = {}
-    for i, field in enumerate(CONF_FACE_FIELDS, start=1):
-        name = options.get(field)
-        if name and str(name).strip():
-            face_map[str(i)] = str(name).strip()
+CONF_CONTROL_MODE = "control_mode"
+CONTROL_MODE_CLOUD = "cloud"
+CONTROL_MODE_BLUETOOTH = "bluetooth"
+CONTROL_MODE_HYBRID = "hybrid"
+DEFAULT_CONTROL_MODE = CONTROL_MODE_HYBRID
+
+CONF_BLE_MAC = "ble_mac"
+CONF_BLE_APP_KEY = "ble_app_key"
+CONF_MEMBER_ID = "member_id"
+
+# Solity BLE GATT UUIDs
+SOLITY_BLE_SERVICE_UUID = "48400001-B5A3-F393-E0A9-E50E24DCCA9E"
+SOLITY_BLE_WRITE_UUID = "48400002-B5A3-F393-E0A9-E50E24DCCA9E"
+SOLITY_BLE_NOTIFY_UUID = "48400003-B5A3-F393-E0A9-E50E24DCCA9E"
+
+
+def get_face_map(
+    options: dict[str, Any] | None,
+    server_map: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Return combined mapping of face key numbers ('1'..'7') to names.
+
+    Server map provides base nicknames; options overrides take precedence.
+    """
+    face_map: dict[str, str] = dict(server_map or {})
+    if options:
+        for i, field in enumerate(CONF_FACE_FIELDS, start=1):
+            name = options.get(field)
+            if name and str(name).strip():
+                face_map[str(i)] = str(name).strip()
     return face_map
+
 
 
 def format_access_log(entry: dict, face_map: dict[str, str] | None = None) -> dict[str, Any]:

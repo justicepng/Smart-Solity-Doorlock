@@ -86,7 +86,9 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity, Rest
 
     @property
     def _face_map(self) -> dict[str, str]:
-        return get_face_map(self._entry.options)
+        server_map = self._entry.runtime_data.status.face_nicknames if hasattr(self._entry, "runtime_data") and self._entry.runtime_data else None
+        return get_face_map(self._entry.options, server_map)
+
 
     async def async_added_to_hass(self) -> None:
         """Seed the baseline so startup does not replay history."""

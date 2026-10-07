@@ -130,7 +130,9 @@ class SolityLastAccessSensor(CoordinatorEntity[SolityLogCoordinator], SensorEnti
 
     @property
     def _face_map(self) -> dict[str, str]:
-        return get_face_map(self._entry.options)
+        server_map = self._entry.runtime_data.status.face_nicknames if hasattr(self._entry, "runtime_data") and self._entry.runtime_data else None
+        return get_face_map(self._entry.options, server_map)
+
 
     @property
     def native_value(self) -> str | None:

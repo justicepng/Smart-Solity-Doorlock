@@ -17,23 +17,31 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import SolityAuthError, SolityClient, SolityError, hash_password
 from .const import (
     CONF_AUTO_CLOSE_SECONDS,
+    CONF_BLE_APP_KEY,
+    CONF_BLE_MAC,
+    CONF_CONTROL_MODE,
     CONF_DEVICE_ID,
     CONF_EMAIL,
+    CONF_FACE_FIELDS,
     CONF_HASHED_PWD,
+    CONF_LOG_SECONDS,
+    CONF_MEMBER_ID,
     CONF_NICKNAME,
     CONF_PASSWORD,
-    CONF_LOG_SECONDS,
     CONF_STATUS_MINUTES,
+    CONTROL_MODE_BLUETOOTH,
+    CONTROL_MODE_CLOUD,
+    CONTROL_MODE_HYBRID,
     DEFAULT_AUTO_CLOSE_SECONDS,
+    DEFAULT_CONTROL_MODE,
     DEFAULT_LOG_SECONDS,
     DEFAULT_STATUS_MINUTES,
+    DOMAIN,
     MAX_AUTO_CLOSE_SECONDS,
     MAX_LOG_SECONDS,
     MAX_STATUS_MINUTES,
     MIN_AUTO_CLOSE_SECONDS,
     MIN_LOG_SECONDS,
-    CONF_FACE_FIELDS,
-    DOMAIN,
 )
 
 USER_SCHEMA = vol.Schema(
@@ -112,6 +120,9 @@ class SolityConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_HASHED_PWD: self._hashed,
                 CONF_DEVICE_ID: device_id,
                 CONF_NICKNAME: nickname,
+                CONF_BLE_MAC: device.get("myDeviceBleMacAddr") or "",
+                CONF_BLE_APP_KEY: device.get("regDeviceAppKey") or "",
+                CONF_MEMBER_ID: device.get("myDeviceMemberId") or "",
             },
         )
 
@@ -122,7 +133,7 @@ class SolityConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class SolityOptionsFlow(OptionsFlow):
-    """Options: poll interval."""
+    """Options: control mode, poll intervals, and face recognition names."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -131,12 +142,26 @@ class SolityOptionsFlow(OptionsFlow):
             return self.async_create_entry(title="", data=user_input)
 
         opts = self.config_entry.options
+        entry_data = self.config_entry.data
+
+        control_mode_default = opts.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)
+        ble_mac_default = opts.get(CONF_BLE_MAC) or entry_data.get(CONF_BLE_MAC) or ""
+
         log_default = opts.get(CONF_LOG_SECONDS, DEFAULT_LOG_SECONDS)
         status_default = opts.get(CONF_STATUS_MINUTES, DEFAULT_STATUS_MINUTES)
         auto_close_default = opts.get(
             CONF_AUTO_CLOSE_SECONDS, DEFAULT_AUTO_CLOSE_SECONDS
         )
+
         schema_dict = {
+            vol.Required(CONF_CONTROL_MODE, default=control_mode_default): vol.In(
+                {
+                    CONTROL_MODE_HYBRID: "하이브리드 (Bluetooth 우선, Cloud 폴백)",
+                    CONTROL_MODE_BLUETOOTH: "블루투스 (Bluetooth BLE - Bluetooth Proxy)",
+                    CONTROL_MODE_CLOUD: "클라우드 (Cloud API)",
+                }
+            ),
+            vol.Optional(CONF_BLE_MAC, default=ble_mac_default): str,
             vol.Required(CONF_LOG_SECONDS, default=log_default): vol.All(
                 vol.Coerce(int),
                 vol.Range(min=MIN_LOG_SECONDS, max=MAX_LOG_SECONDS),
@@ -161,3 +186,4 @@ class SolityOptionsFlow(OptionsFlow):
             step_id="init",
             data_schema=vol.Schema(schema_dict),
         )
+

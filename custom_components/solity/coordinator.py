@@ -10,7 +10,14 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import SolityAuthError, SolityClient, SolityError
-from .const import DOMAIN, TOLERATED_LOG_FAILURES, TOLERATED_STATUS_FAILURES
+from .const import (
+    CONF_BLE_APP_KEY,
+    CONF_BLE_MAC,
+    CONF_MEMBER_ID,
+    DOMAIN,
+    TOLERATED_LOG_FAILURES,
+    TOLERATED_STATUS_FAILURES,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,8 +43,33 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
         self.client = client
         self.device_id = device_id
         self._failures = 0
+        self.face_nicknames: dict[str, str] = {}
+        self.ble_mac: str = entry.data.get(CONF_BLE_MAC) or ""
+        self.ble_app_key: str = entry.data.get(CONF_BLE_APP_KEY) or ""
+        self.member_id: str = entry.data.get(CONF_MEMBER_ID) or ""
 
     async def _async_update_data(self) -> dict:
+        # Sync device metadata & face nicknames if not yet populated
+        if not self.member_id or not self.ble_mac:
+            try:
+                devices = await self.client.get_devices()
+                for dev in devices:
+                    if dev.get("myDeviceId") == self.device_id:
+                        self.member_id = dev.get("myDeviceMemberId") or self.member_id
+                        self.ble_mac = dev.get("myDeviceBleMacAddr") or self.ble_mac
+                        self.ble_app_key = dev.get("regDeviceAppKey") or self.ble_app_key
+                        break
+            except Exception as err:
+                _LOGGER.debug("Could not refresh device metadata: %s", err)
+
+        if self.member_id:
+            try:
+                nicks = await self.client.get_face_nicknames(self.device_id, self.member_id)
+                if nicks:
+                    self.face_nicknames = nicks
+            except Exception as err:
+                _LOGGER.debug("Could not fetch face nicknames: %s", err)
+
         try:
             data = await self.client.get_status(self.device_id)
         except SolityAuthError as err:
