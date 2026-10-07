@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
@@ -44,12 +45,17 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
         self.device_id = device_id
         self._failures = 0
         self.face_nicknames: dict[str, str] = {}
+        self._last_face_sync: float = 0.0
         self.ble_mac: str = entry.data.get(CONF_BLE_MAC) or ""
         self.ble_app_key: str = entry.data.get(CONF_BLE_APP_KEY) or ""
         self.member_id: str = entry.data.get(CONF_MEMBER_ID) or ""
 
-    async def _async_update_data(self) -> dict:
-        # Sync device metadata & face nicknames if not yet populated
+    async def async_sync_face_nicknames(self, force: bool = False) -> dict[str, str]:
+        """Fetch face key nicknames from Solity Cloud and update cache."""
+        now = time.monotonic()
+        if not force and (now - self._last_face_sync < 180):
+            return self.face_nicknames
+
         if not self.member_id or not self.ble_mac:
             try:
                 devices = await self.client.get_devices()
@@ -60,15 +66,27 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
                         self.ble_app_key = dev.get("regDeviceAppKey") or self.ble_app_key
                         break
             except Exception as err:
-                _LOGGER.debug("Could not refresh device metadata: %s", err)
+                _LOGGER.debug("Could not refresh device metadata for face sync: %s", err)
 
         if self.member_id:
             try:
                 nicks = await self.client.get_face_nicknames(self.device_id, self.member_id)
                 if nicks:
                     self.face_nicknames = nicks
+                    self._last_face_sync = now
+                    _LOGGER.info(
+                        "Synchronized %d face key nicknames from Solity Cloud: %s",
+                        len(nicks),
+                        list(nicks.values()),
+                    )
             except Exception as err:
                 _LOGGER.debug("Could not fetch face nicknames: %s", err)
+
+        return self.face_nicknames
+
+    async def _async_update_data(self) -> dict:
+        # Always sync latest face nicknames from Solity Cloud
+        await self.async_sync_face_nicknames(force=True)
 
         try:
             data = await self.client.get_status(self.device_id)
@@ -126,6 +144,18 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
         try:
             data = await self.client.retrieve_log(self.device_id, length=20)
             self._failures = 0
+
+            # If recent logs mention face recognition, ensure face nicknames are fresh
+            if data and hasattr(self.config_entry, "runtime_data") and self.config_entry.runtime_data:
+                latest = data[0]
+                is_face = (str(latest.get("mediaType")) == "15") or ("얼굴" in (latest.get("logMessage") or ""))
+                status_coord = self.config_entry.runtime_data.status
+                if status_coord:
+                    now = time.monotonic()
+                    last_sync = getattr(status_coord, "_last_face_sync", 0.0)
+                    if (is_face and (now - last_sync > 60)) or (now - last_sync > 600):
+                        await status_coord.async_sync_face_nicknames(force=True)
+
             return data
         except SolityAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err

@@ -110,20 +110,11 @@ SOLITY_BLE_NOTIFY_UUID = "48400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
 
 def get_face_map(
-    options: dict[str, Any] | None,
+    options: dict[str, Any] | None = None,
     server_map: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Return combined mapping of face key numbers ('1'..'7') to names.
-
-    Server map provides base nicknames; options overrides take precedence.
-    """
-    face_map: dict[str, str] = dict(server_map or {})
-    if options:
-        for i, field in enumerate(CONF_FACE_FIELDS, start=1):
-            name = options.get(field)
-            if name and str(name).strip():
-                face_map[str(i)] = str(name).strip()
-    return face_map
+    """Return mapping of face key numbers ('1'..'7') to names from Solity Cloud."""
+    return dict(server_map or {})
 
 
 

@@ -17,10 +17,27 @@ from .const import (
     CONF_STATUS_MINUTES,
     DEFAULT_LOG_SECONDS,
     DEFAULT_STATUS_MINUTES,
+    DOMAIN,
 )
 from .coordinator import SolityLogCoordinator, SolityStatusCoordinator
 
 PLATFORMS: list[Platform] = [Platform.LOCK, Platform.SENSOR, Platform.EVENT]
+
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Set up the Solity component services."""
+
+    async def handle_sync_face_nicknames(call) -> None:
+        """Immediately synchronize face nicknames from Solity Cloud."""
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            if hasattr(entry, "runtime_data") and entry.runtime_data:
+                await entry.runtime_data.status.async_sync_face_nicknames(force=True)
+                await entry.runtime_data.log.async_request_refresh()
+
+    hass.services.async_register(
+        DOMAIN, "sync_face_nicknames", handle_sync_face_nicknames
+    )
+    return True
 
 
 @dataclass

@@ -1,0 +1,3 @@
+sync_face_nicknames:
+  name: Sync Face Nicknames
+  description: Immediately fetch the latest registered face recognition nicknames from Solity Cloud.

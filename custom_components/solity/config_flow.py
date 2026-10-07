@@ -22,7 +22,6 @@ from .const import (
     CONF_CONTROL_MODE,
     CONF_DEVICE_ID,
     CONF_EMAIL,
-    CONF_FACE_FIELDS,
     CONF_HASHED_PWD,
     CONF_LOG_SECONDS,
     CONF_MEMBER_ID,
@@ -192,8 +191,6 @@ class SolityOptionsFlow(OptionsFlow):
                 ),
             ),
         }
-        for field in CONF_FACE_FIELDS:
-            schema_dict[vol.Optional(field, default=opts.get(field, ""))] = str
 
         return self.async_show_form(
             step_id="init",
