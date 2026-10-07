@@ -40,7 +40,7 @@ MAX_AUTO_CLOSE_SECONDS = 300
 # Attribute values tagging the synthesized auto-lock close event.
 AUTO_CLOSE_METHOD = "auto"
 AUTO_CLOSE_LOG_TYPE = "AUTO_LOCK"
-AUTO_CLOSE_MESSAGE = "자동으로 잠겼습니다. (W)"
+AUTO_CLOSE_MESSAGE = "자동으로 잠겼습니다."
 
 MANUFACTURER = "SOLITY"
 MODEL = "Smart Doorlock"
@@ -150,6 +150,11 @@ def format_access_log(entry: dict, face_map: dict[str, str] | None = None) -> di
     who = entry.get("nickname") or ""
     raw_msg = entry.get("logMessage") or ""
     msg = raw_msg
+
+    # Strip (G) and (W) markers from cloud/hardware log messages
+    msg = re.sub(r"\s*\([GWgw]\)", "", msg).strip()
+    if raw_msg.strip().endswith(".") and not msg.endswith("."):
+        msg += "."
 
     # 1. Resolve registered face recognition if custom names are mapped
     is_face = (method_code == "15") or ("얼굴" in msg)

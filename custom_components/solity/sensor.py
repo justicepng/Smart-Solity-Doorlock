@@ -149,7 +149,8 @@ class SolityLastAccessSensor(CoordinatorEntity[SolityLogCoordinator], SensorEnti
             time_suffix = f" ({dt_str[11:16]})"
 
         if msg:
-            val = f"{msg}{time_suffix}" if time_suffix and not msg.endswith(time_suffix) else msg
+            has_time = bool(re.search(r"\(\d{2}:\d{2}\)\s*$", msg))
+            val = f"{msg}{time_suffix}" if (time_suffix and not has_time) else msg
             return val[:255]
 
         who = parsed.get("who") or ""
