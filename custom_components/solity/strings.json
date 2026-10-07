@@ -32,9 +32,16 @@
         "data": {
           "log_seconds": "Event-log poll interval (seconds)",
           "status_minutes": "Status/battery poll interval (minutes)",
-          "auto_close_seconds": "Auto-lock close delay (seconds)"
+          "auto_close_seconds": "Auto-lock close delay (seconds)",
+          "face_name_1": "Face #1 custom name (optional)",
+          "face_name_2": "Face #2 custom name (optional)",
+          "face_name_3": "Face #3 custom name (optional)",
+          "face_name_4": "Face #4 custom name (optional)",
+          "face_name_5": "Face #5 custom name (optional)",
+          "face_name_6": "Face #6 custom name (optional)",
+          "face_name_7": "Face #7 custom name (optional)"
         },
-        "description": "Event-log polling (5-600s) reads the cloud log — it does NOT wake the lock, so it can be fast. Status polling (1-1440 min) wakes the lock for battery/deadbolt, so keep it slow. The lock only logs opens, so a synthetic 'close (auto)' event is emitted this many seconds (1-300) after each open to mark the auto-lock and revert the lock state to locked."
+        "description": "Configure polling intervals and auto-lock delay. Setting custom names for face recognition keys (1-7) will automatically display real user names in access logs and notifications."
       }
     }
   },

@@ -25,6 +25,8 @@ from .const import (
     MANUFACTURER,
     METHOD_MAP,
     MODEL,
+    format_access_log,
+    get_face_map,
 )
 from .coordinator import SolityLogCoordinator, SolityStatusCoordinator
 
@@ -117,6 +119,7 @@ class SolityLastAccessSensor(CoordinatorEntity[SolityLogCoordinator], SensorEnti
 
     def __init__(self, coordinator: SolityLogCoordinator, entry: SolityConfigEntry) -> None:
         super().__init__(coordinator)
+        self._entry = entry
         self._attr_unique_id = f"{entry.data[CONF_DEVICE_ID]}_last_access"
         self._attr_device_info = _device_info(entry)
 
@@ -126,18 +129,21 @@ class SolityLastAccessSensor(CoordinatorEntity[SolityLogCoordinator], SensorEnti
         return logs[0] if logs else None
 
     @property
+    def _face_map(self) -> dict[str, str]:
+        return get_face_map(self._entry.options)
+
+    @property
     def native_value(self) -> str | None:
         entry = self._latest
         if not entry:
             return None
-        # Always prefer full server-provided message if available
-        msg = entry.get("logMessage")
+        parsed = format_access_log(entry, self._face_map)
+        msg = parsed.get("message")
         if msg:
             return msg[:255]
 
-        who = entry.get("nickname") or ""
-        method_code = str(entry.get("mediaType") or "")
-        method_name = METHOD_MAP.get(method_code, method_code)
+        who = parsed.get("who") or ""
+        method_name = parsed.get("method") or ""
         if who and method_name:
             return f"{who} ({method_name})"
         return (who or method_name or None)
@@ -145,48 +151,15 @@ class SolityLastAccessSensor(CoordinatorEntity[SolityLogCoordinator], SensorEnti
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         entry = self._latest or {}
-        method_code = str(entry.get("mediaType") or "")
-        who = entry.get("nickname") or ""
-        msg = entry.get("logMessage") or ""
-
-        # Direction and method detection
-        is_remote = (method_code in ("6", "7")) or ("원격" in msg)
-        is_app = (method_code == "4") or ("앱" in msg) or ("스마트폰" in msg)
-        is_inside = (not is_remote) and (not is_app) and (("실내" in msg) or ("수동" in msg) or (not who and method_code in ("0", "5")))
-
-        # Try to parse who from message if nickname is empty (e.g. "정의평님이 원격으로 도어락을 열었습니다. (G)")
-        display_who = who
-        if not display_who and msg:
-            m = re.match(r"^(.+?)님이", msg)
-            if m:
-                display_who = m.group(1).strip()
-
-        if is_remote:
-            method_name = "원격 열기"
-            direction = "remote"
-            if not display_who:
-                display_who = "원격 제어"
-        elif is_app:
-            method_name = "스마트폰 앱"
-            direction = "outside"
-            if not display_who:
-                display_who = "스마트폰 앱"
-        elif is_inside:
-            method_name = METHOD_MAP.get(method_code, "실내 개폐")
-            direction = "inside"
-            if not display_who:
-                display_who = "실내"
-        else:
-            method_name = METHOD_MAP.get(method_code, method_code)
-            direction = "outside"
+        parsed = format_access_log(entry, self._face_map)
 
         return {
             "datetime": entry.get("logDateTime"),
-            "who": display_who,
-            "method": method_name,
-            "method_code": method_code,
-            "direction": direction,
+            "who": parsed["who"],
+            "method": parsed["method"],
+            "method_code": parsed["method_code"],
+            "direction": parsed["direction"],
             "log_type": entry.get("logType"),
             "log_code": entry.get("logCode"),
-            "message": entry.get("logMessage"),
+            "message": parsed["message"],
         }

@@ -32,7 +32,7 @@ from .const import (
     MAX_STATUS_MINUTES,
     MIN_AUTO_CLOSE_SECONDS,
     MIN_LOG_SECONDS,
-    MIN_STATUS_MINUTES,
+    CONF_FACE_FIELDS,
     DOMAIN,
 )
 
@@ -136,26 +136,28 @@ class SolityOptionsFlow(OptionsFlow):
         auto_close_default = opts.get(
             CONF_AUTO_CLOSE_SECONDS, DEFAULT_AUTO_CLOSE_SECONDS
         )
+        schema_dict = {
+            vol.Required(CONF_LOG_SECONDS, default=log_default): vol.All(
+                vol.Coerce(int),
+                vol.Range(min=MIN_LOG_SECONDS, max=MAX_LOG_SECONDS),
+            ),
+            vol.Required(CONF_STATUS_MINUTES, default=status_default): vol.All(
+                vol.Coerce(int),
+                vol.Range(min=MIN_STATUS_MINUTES, max=MAX_STATUS_MINUTES),
+            ),
+            vol.Required(
+                CONF_AUTO_CLOSE_SECONDS, default=auto_close_default
+            ): vol.All(
+                vol.Coerce(int),
+                vol.Range(
+                    min=MIN_AUTO_CLOSE_SECONDS, max=MAX_AUTO_CLOSE_SECONDS
+                ),
+            ),
+        }
+        for field in CONF_FACE_FIELDS:
+            schema_dict[vol.Optional(field, default=opts.get(field, ""))] = str
+
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_LOG_SECONDS, default=log_default): vol.All(
-                        vol.Coerce(int),
-                        vol.Range(min=MIN_LOG_SECONDS, max=MAX_LOG_SECONDS),
-                    ),
-                    vol.Required(CONF_STATUS_MINUTES, default=status_default): vol.All(
-                        vol.Coerce(int),
-                        vol.Range(min=MIN_STATUS_MINUTES, max=MAX_STATUS_MINUTES),
-                    ),
-                    vol.Required(
-                        CONF_AUTO_CLOSE_SECONDS, default=auto_close_default
-                    ): vol.All(
-                        vol.Coerce(int),
-                        vol.Range(
-                            min=MIN_AUTO_CLOSE_SECONDS, max=MAX_AUTO_CLOSE_SECONDS
-                        ),
-                    ),
-                }
-            ),
+            data_schema=vol.Schema(schema_dict),
         )

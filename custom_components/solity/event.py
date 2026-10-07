@@ -33,6 +33,8 @@ from .const import (
     MANUFACTURER,
     METHOD_MAP,
     MODEL,
+    format_access_log,
+    get_face_map,
 )
 from .coordinator import SolityLogCoordinator
 
@@ -67,6 +69,7 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity, Rest
 
     def __init__(self, coordinator: SolityLogCoordinator, entry: SolityConfigEntry) -> None:
         super().__init__(coordinator)
+        self._entry = entry
         self._device_id = entry.data[CONF_DEVICE_ID]
         self._attr_unique_id = f"{self._device_id}_door_event"
         self._attr_device_info = DeviceInfo(
@@ -80,6 +83,10 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity, Rest
         )
         self._last_dt: str | None = None
         self._cancel_close = None
+
+    @property
+    def _face_map(self) -> dict[str, str]:
+        return get_face_map(self._entry.options)
 
     async def async_added_to_hass(self) -> None:
         """Seed the baseline so startup does not replay history."""
@@ -106,50 +113,19 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity, Rest
             if (log.get("logDateTime") or "") > self._last_dt
         ]
         for log in reversed(new_entries):
-            method_code = str(log.get("mediaType") or "")
-            who = log.get("nickname") or ""
-            msg = log.get("logMessage") or ""
-
-            is_remote = (method_code in ("6", "7")) or ("원격" in msg)
-            is_app = (method_code == "4") or ("앱" in msg) or ("스마트폰" in msg)
-            is_inside = (not is_remote) and (not is_app) and (("실내" in msg) or ("수동" in msg) or (not who and method_code in ("0", "5")))
-
-            display_who = who
-            if not display_who and msg:
-                m = re.match(r"^(.+?)님이", msg)
-                if m:
-                    display_who = m.group(1).strip()
-
-            if is_remote:
-                method_name = "원격 열기"
-                direction = "remote"
-                if not display_who:
-                    display_who = "원격 제어"
-            elif is_app:
-                method_name = "스마트폰 앱"
-                direction = "outside"
-                if not display_who:
-                    display_who = "스마트폰 앱"
-            elif is_inside:
-                method_name = METHOD_MAP.get(method_code, "실내 개폐")
-                direction = "inside"
-                if not display_who:
-                    display_who = "실내"
-            else:
-                method_name = METHOD_MAP.get(method_code, method_code)
-                direction = "outside"
+            parsed = format_access_log(log, self._face_map)
 
             self._trigger_event(
                 _event_type(log.get("logCode")),
                 {
                     "datetime": log.get("logDateTime"),
-                    "who": display_who,
-                    "method": method_name,
-                    "method_code": method_code,
-                    "direction": direction,
+                    "who": parsed["who"],
+                    "method": parsed["method"],
+                    "method_code": parsed["method_code"],
+                    "direction": parsed["direction"],
                     "log_type": log.get("logType"),
                     "log_code": log.get("logCode"),
-                    "message": log.get("logMessage"),
+                    "message": parsed["message"],
                     "synthetic": False,
                 },
             )

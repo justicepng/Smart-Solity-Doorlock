@@ -34,6 +34,8 @@ from .const import (
     MANUFACTURER,
     METHOD_MAP,
     MODEL,
+    format_access_log,
+    get_face_map,
 )
 from .coordinator import SolityLogCoordinator, SolityStatusCoordinator
 
@@ -68,6 +70,7 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         entry: SolityConfigEntry,
     ) -> None:
         super().__init__(status_coord)
+        self._entry = entry
         self._log_coord = log_coord
         self._device_id = entry.data[CONF_DEVICE_ID]
         self._attr_unique_id = f"{self._device_id}_lock"
@@ -85,6 +88,10 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         self._cancel_revert = None
         self._is_locking: bool = False
         self._is_unlocking: bool = False
+
+    @property
+    def _face_map(self) -> dict[str, str]:
+        return get_face_map(self._entry.options)
 
     @property
     def available(self) -> bool:
@@ -190,34 +197,7 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         data = self.coordinator.data or {}
         logs = self._log_coord.data or []
         latest = logs[0] if logs else {}
-        method_code = str(latest.get("mediaType") or "")
-        who = latest.get("nickname") or ""
-        msg = latest.get("logMessage") or ""
-
-        is_remote = (method_code in ("6", "7")) or ("원격" in msg)
-        is_app = (method_code == "4") or ("앱" in msg) or ("스마트폰" in msg)
-        is_inside = (not is_remote) and (not is_app) and (("실내" in msg) or ("수동" in msg) or (not who and method_code in ("0", "5")))
-
-        display_who = who
-        if not display_who and msg:
-            m = re.match(r"^(.+?)님이", msg)
-            if m:
-                display_who = m.group(1).strip()
-
-        if is_remote:
-            method_name = "원격 열기"
-            if not display_who:
-                display_who = "원격 제어"
-        elif is_app:
-            method_name = "스마트폰 앱"
-            if not display_who:
-                display_who = "스마트폰 앱"
-        elif is_inside:
-            method_name = METHOD_MAP.get(method_code, "실내 개폐")
-            if not display_who:
-                display_who = "실내"
-        else:
-            method_name = METHOD_MAP.get(method_code, method_code)
+        parsed = format_access_log(latest, self._face_map)
 
         attrs = {
             "sub_latch": data.get("subLatch"),
@@ -226,8 +206,8 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
             "password_count": data.get("passwordCount"),
             "fingerprint_count": data.get("fingerPrintCount"),
             "live_state": self._override is not None,
-            "last_access_who": display_who,
-            "last_access_method": method_name,
+            "last_access_who": parsed["who"],
+            "last_access_method": parsed["method"],
             "last_access_time": latest.get("logDateTime"),
         }
         return attrs
