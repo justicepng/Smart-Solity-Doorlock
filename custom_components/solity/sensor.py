@@ -141,14 +141,27 @@ class SolityLastAccessSensor(CoordinatorEntity[SolityLogCoordinator], SensorEnti
             return None
         parsed = format_access_log(entry, self._face_map)
         msg = parsed.get("message")
+
+        # Format time suffix if datetime is available (e.g. " (19:01)")
+        time_suffix = ""
+        dt_str = entry.get("logDateTime")
+        if dt_str and len(dt_str) >= 16 and ":" in dt_str[11:16]:
+            time_suffix = f" ({dt_str[11:16]})"
+
         if msg:
-            return msg[:255]
+            val = f"{msg}{time_suffix}" if time_suffix and not msg.endswith(time_suffix) else msg
+            return val[:255]
 
         who = parsed.get("who") or ""
         method_name = parsed.get("method") or ""
         if who and method_name:
-            return f"{who} ({method_name})"
-        return (who or method_name or None)
+            val = f"{who} ({method_name}){time_suffix}"
+            return val[:255]
+        if who or method_name:
+            base = who or method_name
+            val = f"{base}{time_suffix}"
+            return val[:255]
+        return None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
