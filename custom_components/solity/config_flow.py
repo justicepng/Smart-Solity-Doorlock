@@ -42,6 +42,7 @@ from .const import (
     MAX_STATUS_MINUTES,
     MIN_AUTO_CLOSE_SECONDS,
     MIN_LOG_SECONDS,
+    MIN_STATUS_MINUTES,
 )
 
 USER_SCHEMA = vol.Schema(
@@ -129,11 +130,23 @@ class SolityConfigFlow(ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
-        return SolityOptionsFlow()
+        return SolityOptionsFlow(config_entry)
 
 
 class SolityOptionsFlow(OptionsFlow):
     """Options: control mode, poll intervals, and face recognition names."""
+
+    def __init__(self, config_entry: ConfigEntry | None = None) -> None:
+        """Initialize options flow."""
+        if config_entry is not None:
+            self._config_entry = config_entry
+
+    @property
+    def config_entry(self) -> ConfigEntry:
+        """Return the config entry."""
+        if hasattr(self, "_config_entry"):
+            return self._config_entry
+        return super().config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
