@@ -13,6 +13,7 @@ import logging
 import re
 from typing import Any
 
+from homeassistant.components import bluetooth
 from homeassistant.components.lock import LockEntity, LockEntityFeature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -95,9 +96,16 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         self._cancel_revert = None
         self._is_locking: bool = False
         self._is_unlocking: bool = False
+        self._ble_listener_registered: bool = False
+        initial_ble_mac = (
+            entry.options.get(CONF_BLE_MAC)
+            or entry.data.get(CONF_BLE_MAC)
+            or getattr(status_coord, "ble_mac", "")
+            or ""
+        )
         self._ble_client = SolityBleClient(
             hass=status_coord.hass,
-            ble_mac=entry.options.get(CONF_BLE_MAC) or entry.data.get(CONF_BLE_MAC) or "",
+            ble_mac=initial_ble_mac,
             app_key=entry.data.get(CONF_BLE_APP_KEY),
         )
 
@@ -122,6 +130,12 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         else:
             self._override = True  # Default to locked for auto-locking doorlocks
 
+        # Seed BLE MAC and listener
+        ble_mac = self._entry.options.get(CONF_BLE_MAC) or self.coordinator.ble_mac
+        if ble_mac and self._ble_client.ble_mac != ble_mac.upper().strip():
+            self._ble_client.ble_mac = ble_mac.upper().strip()
+        self._ensure_ble_listener()
+
         logs = self._log_coord.data or []
         if logs:
             self._last_log_dt = logs[0].get("logDateTime")
@@ -134,7 +148,43 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from status coordinator (hardware ground truth)."""
         self._override = None
+        ble_mac = self._entry.options.get(CONF_BLE_MAC) or self.coordinator.ble_mac
+        if ble_mac and self._ble_client.ble_mac != ble_mac.upper().strip():
+            self._ble_client.ble_mac = ble_mac.upper().strip()
+        self._ensure_ble_listener()
         super()._handle_coordinator_update()
+
+    @callback
+    def _ensure_ble_listener(self) -> None:
+        """Subscribe to BLE advertisement broadcasts for instantaneous wake/activity detection."""
+        if self._ble_listener_registered or not self._ble_client.ble_mac:
+            return
+        if not hasattr(bluetooth, "async_register_callback"):
+            return
+
+        @callback
+        def _on_ble_packet(service_info: Any, change: Any) -> None:
+            _LOGGER.debug(
+                "Solity door lock BLE packet received: mac=%s, rssi=%s",
+                service_info.address,
+                service_info.rssi,
+            )
+            # Doorlock woke up! Refresh logs immediately so events are caught without cloud polling delay
+            self.hass.async_create_task(self._log_coord.async_request_refresh())
+            self.async_write_ha_state()
+
+        self._ble_listener_registered = True
+        try:
+            self.async_on_remove(
+                bluetooth.async_register_callback(
+                    self.hass,
+                    _on_ble_packet,
+                    {"address": self._ble_client.ble_mac.lower(), "connectable": False},
+                    bluetooth.BluetoothScanningMode.PASSIVE,
+                )
+            )
+        except Exception as err:
+            _LOGGER.debug("Could not register BLE advertisement callback: %s", err)
 
     @callback
     def _handle_log_update(self) -> None:
@@ -238,6 +288,12 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
 
         control_mode = self._entry.options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)
         ble_mac = self._entry.options.get(CONF_BLE_MAC) or self.coordinator.ble_mac
+        if ble_mac and self._ble_client.ble_mac != ble_mac.upper().strip():
+            self._ble_client.ble_mac = ble_mac.upper().strip()
+        self._ensure_ble_listener()
+
+        service_info = self._ble_client.get_service_info()
+        ble_rssi = service_info.rssi if service_info else None
 
         sub_latch = data.get("subLatch")
         dead_bolt = data.get("deadBolt")
@@ -256,6 +312,7 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
             "control_mode": control_mode,
             "ble_mac": ble_mac,
             "ble_available": self._ble_client.is_available() if ble_mac else False,
+            "ble_rssi": ble_rssi,
             "last_access_who": parsed["who"],
             "last_access_method": parsed["method"],
             "last_access_time": latest.get("logDateTime"),

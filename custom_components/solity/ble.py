@@ -123,10 +123,18 @@ class SolityBleClient:
         """Check if the door lock is currently discovered by any Bluetooth Proxy."""
         if not self.ble_mac:
             return False
-        device = bluetooth.async_ble_device_from_address(
-            self.hass, self.ble_mac, connectable=True
-        )
-        return device is not None
+        if bluetooth.async_ble_device_from_address(self.hass, self.ble_mac, connectable=True) is not None:
+            return True
+        if hasattr(bluetooth, "async_address_present"):
+            if bluetooth.async_address_present(self.hass, self.ble_mac, connectable=False):
+                return True
+        return False
+
+    def get_service_info(self) -> Any:
+        """Return the latest advertisement service info from any scanner/proxy."""
+        if not self.ble_mac or not hasattr(bluetooth, "async_last_service_info"):
+            return None
+        return bluetooth.async_last_service_info(self.hass, self.ble_mac, connectable=False)
 
     async def open(self) -> bool:
         """Send unlock command over BLE."""
