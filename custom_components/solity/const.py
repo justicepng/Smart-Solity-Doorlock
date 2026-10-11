@@ -74,7 +74,7 @@ METHOD_MAP: dict[str, str] = {
     "ble": "블루투스 감지",
 }
 
-# Face recognition key user name mapping options (up to 7 keys)
+# Face recognition key user name mapping options (up to 10 keys)
 CONF_FACE_NAME_1 = "face_name_1"
 CONF_FACE_NAME_2 = "face_name_2"
 CONF_FACE_NAME_3 = "face_name_3"
@@ -82,6 +82,9 @@ CONF_FACE_NAME_4 = "face_name_4"
 CONF_FACE_NAME_5 = "face_name_5"
 CONF_FACE_NAME_6 = "face_name_6"
 CONF_FACE_NAME_7 = "face_name_7"
+CONF_FACE_NAME_8 = "face_name_8"
+CONF_FACE_NAME_9 = "face_name_9"
+CONF_FACE_NAME_10 = "face_name_10"
 
 CONF_FACE_FIELDS: list[str] = [
     CONF_FACE_NAME_1,
@@ -91,6 +94,9 @@ CONF_FACE_FIELDS: list[str] = [
     CONF_FACE_NAME_5,
     CONF_FACE_NAME_6,
     CONF_FACE_NAME_7,
+    CONF_FACE_NAME_8,
+    CONF_FACE_NAME_9,
+    CONF_FACE_NAME_10,
 ]
 
 
@@ -111,6 +117,7 @@ SOLITY_BLE_NOTIFY_UUID = "48400003-B5A3-F393-E0A9-E50E24DCCA9E"
 
 
 # Default mapping of face recognition keys to user names (household members)
+# Solity doorlock hardware may assign non-consecutive slot indices (e.g., slot 9 for 7th face key)
 DEFAULT_FACE_MAP: dict[str, str] = {
     "1": "정의평",
     "2": "정상수",
@@ -119,6 +126,9 @@ DEFAULT_FACE_MAP: dict[str, str] = {
     "5": "유경선",
     "6": "정의평",
     "7": "정상수",
+    "8": "정상수",
+    "9": "정상수",
+    "10": "정상수",
 }
 
 
@@ -126,7 +136,7 @@ def get_face_map(
     options: dict[str, Any] | None = None,
     server_map: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Return mapping of face key numbers ('1'..'7') to names.
+    """Return mapping of face key numbers ('1'..'10') to names.
 
     Combines built-in defaults, cloud nicknames (Solity app),
     and user options if configured.
@@ -137,7 +147,7 @@ def get_face_map(
             if v and str(v).strip():
                 result[str(k)] = str(v).strip()
     if options:
-        for k in range(1, 8):
+        for k in range(1, 16):
             val = options.get(f"face_name_{k}")
             if val and str(val).strip():
                 result[str(k)] = str(val).strip()
@@ -162,7 +172,12 @@ def format_access_log(entry: dict, face_map: dict[str, str] | None = None) -> di
     if is_face:
         mapping = face_map if face_map is not None else DEFAULT_FACE_MAP
         if mapping:
-            for k, name in mapping.items():
+            val1 = str(entry.get("logMsgVal1") or "").strip()
+            if val1 and val1 in mapping:
+                who = mapping[val1]
+
+            for k in sorted(mapping.keys(), key=lambda x: len(str(x)), reverse=True):
+                name = mapping[k]
                 pattern = rf"{k}번\s*얼굴(?:인식)?"
                 if re.search(pattern, msg):
                     who = name
