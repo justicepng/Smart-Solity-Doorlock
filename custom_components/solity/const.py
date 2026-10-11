@@ -19,7 +19,7 @@ MAX_LOG_SECONDS = 600
 
 # Status poll (slow, minutes) — battery % and deadbolt resync (wakes the lock).
 CONF_STATUS_MINUTES = "status_minutes"
-DEFAULT_STATUS_MINUTES = 30
+DEFAULT_STATUS_MINUTES = 360
 MIN_STATUS_MINUTES = 1
 MAX_STATUS_MINUTES = 1440
 

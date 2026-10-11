@@ -52,6 +52,7 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
         self.ble_app_key: str = entry.data.get(CONF_BLE_APP_KEY) or ""
         self.member_id: str = entry.data.get(CONF_MEMBER_ID) or ""
         self.gateway_conn_status: str | None = None
+        self._last_device_metadata: dict[str, Any] | None = None
 
     async def async_sync_face_nicknames(self, force: bool = False) -> dict[str, str]:
         """Fetch face key nicknames from Solity Cloud and update cache."""
@@ -63,6 +64,7 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
             devices = await self.client.get_devices()
             for dev in devices:
                 if dev.get("myDeviceId") == self.device_id:
+                    self._last_device_metadata = dev
                     self.member_id = dev.get("myDeviceMemberId") or self.member_id
                     self.ble_mac = dev.get("myDeviceBleMacAddr") or self.ble_mac
                     self.ble_app_key = dev.get("regDeviceAppKey") or self.ble_app_key
@@ -88,8 +90,26 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
         return self.face_nicknames
 
     async def _async_update_data(self) -> dict:
-        # Always sync latest face nicknames from Solity Cloud
+        # Always sync latest face nicknames and device info from Solity Cloud (passive cloud read)
         await self.async_sync_face_nicknames(force=True)
+
+        base_data: dict[str, Any] = {}
+        if self._last_device_metadata:
+            dev = self._last_device_metadata
+            if dev.get("battery") is not None:
+                base_data["battery"] = dev.get("battery")
+            if dev.get("lockerStatus") is not None:
+                # lockerStatus: "0" = locked, "1" = unlocked
+                base_data["deadBolt"] = str(dev.get("lockerStatus", "0"))
+            if dev.get("sublatchSetStatus") is not None:
+                base_data["subLatch"] = dev.get("sublatchSetStatus")
+
+        # If gateway is offline, skip physical lock wake-up (get_status) to avoid timeouts and gateway buffer lockups
+        if self.gateway_conn_status == "N":
+            _LOGGER.debug(
+                "Solity gateway is offline (gatewayConnStatus=N); skipping wake-up get_status poll"
+            )
+            return {**(self.data or {}), **base_data}
 
         try:
             data = await self.client.get_status(self.device_id)
@@ -106,19 +126,19 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
                     TOLERATED_STATUS_FAILURES,
                     err,
                 )
-                return self.data
+                return {**(self.data or {}), **base_data}
             _LOGGER.debug("Solity status fetch failed (lock sleeping or no gateway): %s", err)
-            # Return empty dict instead of raising UpdateFailed to avoid flapping entities
-            return self.data or {}
+            # Return combined base_data instead of empty dict
+            return {**(self.data or {}), **base_data}
 
         if not data:
             self._failures += 1
             if self.data and self._failures <= TOLERATED_STATUS_FAILURES:
-                return self.data
-            return {}
+                return {**(self.data or {}), **base_data}
+            return base_data
 
         self._failures = 0
-        return data
+        return {**base_data, **data}
 
 
 class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
