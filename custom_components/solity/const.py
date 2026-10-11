@@ -71,6 +71,7 @@ METHOD_MAP: dict[str, str] = {
     "15": "얼굴인식",
     "32": "실내 개폐",
     "auto": "자동잠김",
+    "ble": "블루투스 감지",
 }
 
 # Face recognition key user name mapping options (up to 7 keys)
@@ -215,6 +216,9 @@ def format_access_log(entry: dict, face_map: dict[str, str] | None = None) -> di
     elif is_face:
         method_name = "얼굴인식"
         direction = "outside"
+    elif method_code == "ble":
+        method_name = "블루투스 감지"
+        direction = "unknown"
     else:
         method_name = METHOD_MAP.get(method_code, method_code)
         direction = "outside"

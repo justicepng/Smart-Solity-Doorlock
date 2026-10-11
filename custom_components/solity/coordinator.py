@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import logging
-import time
-from datetime import timedelta
+from datetime import datetime, timedelta
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import SolityAuthError, SolityClient, SolityError
@@ -49,6 +50,7 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
         self.ble_mac: str = entry.data.get(CONF_BLE_MAC) or ""
         self.ble_app_key: str = entry.data.get(CONF_BLE_APP_KEY) or ""
         self.member_id: str = entry.data.get(CONF_MEMBER_ID) or ""
+        self.gateway_conn_status: str | None = None
 
     async def async_sync_face_nicknames(self, force: bool = False) -> dict[str, str]:
         """Fetch face key nicknames from Solity Cloud and update cache."""
@@ -56,17 +58,17 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
         if not force and (now - self._last_face_sync < 180):
             return self.face_nicknames
 
-        if not self.member_id or not self.ble_mac:
-            try:
-                devices = await self.client.get_devices()
-                for dev in devices:
-                    if dev.get("myDeviceId") == self.device_id:
-                        self.member_id = dev.get("myDeviceMemberId") or self.member_id
-                        self.ble_mac = dev.get("myDeviceBleMacAddr") or self.ble_mac
-                        self.ble_app_key = dev.get("regDeviceAppKey") or self.ble_app_key
-                        break
-            except Exception as err:
-                _LOGGER.debug("Could not refresh device metadata for face sync: %s", err)
+        try:
+            devices = await self.client.get_devices()
+            for dev in devices:
+                if dev.get("myDeviceId") == self.device_id:
+                    self.member_id = dev.get("myDeviceMemberId") or self.member_id
+                    self.ble_mac = dev.get("myDeviceBleMacAddr") or self.ble_mac
+                    self.ble_app_key = dev.get("regDeviceAppKey") or self.ble_app_key
+                    self.gateway_conn_status = dev.get("gatewayConnStatus")
+                    break
+        except Exception as err:
+            _LOGGER.debug("Could not refresh device metadata: %s", err)
 
         if self.member_id:
             try:
@@ -139,6 +141,54 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
         self.client = client
         self.device_id = device_id
         self._failures = 0
+        self._recent_ble_log: dict | None = None
+        self._last_ble_event_time: float = 0.0
+        self._cancel_ble_fallback = None
+
+    @callback
+    def handle_ble_wake(self, address: str, rssi: int | None = None) -> None:
+        """React instantaneously to BLE wake advertisement from Bluetooth proxy."""
+        now = time.monotonic()
+        # Cooldown: 15 seconds debounce to avoid multiple triggers for a single door opening
+        if now - self._last_ble_event_time < 15.0:
+            return
+
+        self._last_ble_event_time = now
+        baseline_dt = (self.data[0].get("logDateTime") or "") if self.data else ""
+
+        # Immediately trigger fast cloud refresh
+        self.hass.async_create_task(self.async_request_refresh())
+
+        if self._cancel_ble_fallback is not None:
+            self._cancel_ble_fallback()
+            self._cancel_ble_fallback = None
+
+        @callback
+        def _trigger_fallback(_now: Any) -> None:
+            self._cancel_ble_fallback = None
+            current_dt = (self.data[0].get("logDateTime") or "") if self.data else ""
+            if current_dt > baseline_dt:
+                # Cloud already brought the new detailed log!
+                return
+
+            _LOGGER.info(
+                "Solity cloud log not received within 3.5s of BLE wake (gateway offline); triggering local BLE open event"
+            )
+            now_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            ble_log = {
+                "logDateTime": now_dt,
+                "logCode": "1",  # Open
+                "logType": "LOCKER_STATUS_TYPE",
+                "mediaType": "ble",
+                "nickname": "",
+                "logMessage": "현관 도어락이 열렸습니다. (블루투스 감지)",
+                "ble_fallback": True,
+            }
+            self._recent_ble_log = ble_log
+            current = self.data or []
+            self.async_set_updated_data([ble_log] + current)
+
+        self._cancel_ble_fallback = async_call_later(self.hass, 3.5, _trigger_fallback)
 
     async def _async_update_data(self) -> list[dict]:
         try:
@@ -155,6 +205,14 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
                     last_sync = getattr(status_coord, "_last_face_sync", 0.0)
                     if (is_face and (now - last_sync > 60)) or (now - last_sync > 600):
                         await status_coord.async_sync_face_nicknames(force=True)
+
+            # Preserve recent BLE fallback log at head if cloud hasn't caught up
+            if self._recent_ble_log and data:
+                newest_cloud_dt = data[0].get("logDateTime") or ""
+                if newest_cloud_dt < self._recent_ble_log.get("logDateTime", ""):
+                    data = [self._recent_ble_log] + data
+                else:
+                    self._recent_ble_log = None
 
             return data
         except SolityAuthError as err:

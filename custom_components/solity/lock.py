@@ -169,8 +169,8 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
                 service_info.address,
                 service_info.rssi,
             )
-            # Doorlock woke up! Refresh logs immediately so events are caught without cloud polling delay
-            self.hass.async_create_task(self._log_coord.async_request_refresh())
+            # Notify log coordinator of BLE wake to trigger fast cloud poll or fallback open
+            self._log_coord.handle_ble_wake(service_info.address, service_info.rssi)
             self.async_write_ha_state()
 
         self._ble_listener_registered = True
@@ -313,6 +313,7 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
             "ble_mac": ble_mac,
             "ble_available": self._ble_client.is_available() if ble_mac else False,
             "ble_rssi": ble_rssi,
+            "gateway_connected": (self.coordinator.gateway_conn_status == "Y") if self.coordinator.gateway_conn_status is not None else None,
             "last_access_who": parsed["who"],
             "last_access_method": parsed["method"],
             "last_access_time": latest.get("logDateTime"),
