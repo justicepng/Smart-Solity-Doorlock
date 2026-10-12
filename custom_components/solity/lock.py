@@ -123,12 +123,8 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         """Seed the log baseline and subscribe to the fast log coordinator."""
         await super().async_added_to_hass()
 
-        # Restore last state if available
-        last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state in ("locked", "unlocked"):
-            self._override = (last_state.state == "locked")
-        else:
-            self._override = True  # Default to locked for auto-locking doorlocks
+        # Default to locked for auto-locking doorlocks
+        self._override = True
 
         # Seed BLE MAC and listener
         ble_mac = self._entry.options.get(CONF_BLE_MAC) or self.coordinator.ble_mac
@@ -147,7 +143,8 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from status coordinator (hardware ground truth)."""
-        self._override = None
+        if self._cancel_revert is None:
+            self._override = None
         ble_mac = self._entry.options.get(CONF_BLE_MAC) or self.coordinator.ble_mac
         if ble_mac and self._ble_client.ble_mac != ble_mac.upper().strip():
             self._ble_client.ble_mac = ble_mac.upper().strip()

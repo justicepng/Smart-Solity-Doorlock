@@ -99,17 +99,23 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
             if dev.get("battery") is not None:
                 base_data["battery"] = dev.get("battery")
             if dev.get("lockerStatus") is not None:
-                # lockerStatus: "0" = locked, "1" = unlocked
-                base_data["deadBolt"] = str(dev.get("lockerStatus", "0"))
-            if dev.get("sublatchSetStatus") is not None:
-                base_data["subLatch"] = dev.get("sublatchSetStatus")
+                # Solity Cloud lockerStatus: "0" = locked, "1" = unlocked
+                # Deadbolt protocol: 1 = locked, 0 = unlocked
+                base_data["deadBolt"] = 1 if str(dev.get("lockerStatus")) == "0" else 0
+
+        # Helper to merge clean coordinator data without stale subLatch
+        def _get_merged_data() -> dict:
+            clean_data = dict(self.data or {})
+            if clean_data.get("subLatch") in (0, "0"):
+                clean_data.pop("subLatch", None)
+            return {**clean_data, **base_data}
 
         # If gateway is offline, skip physical lock wake-up (get_status) to avoid timeouts and gateway buffer lockups
         if self.gateway_conn_status == "N":
             _LOGGER.debug(
                 "Solity gateway is offline (gatewayConnStatus=N); skipping wake-up get_status poll"
             )
-            return {**(self.data or {}), **base_data}
+            return _get_merged_data()
 
         try:
             data = await self.client.get_status(self.device_id)
@@ -126,15 +132,14 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
                     TOLERATED_STATUS_FAILURES,
                     err,
                 )
-                return {**(self.data or {}), **base_data}
+                return _get_merged_data()
             _LOGGER.debug("Solity status fetch failed (lock sleeping or no gateway): %s", err)
-            # Return combined base_data instead of empty dict
-            return {**(self.data or {}), **base_data}
+            return _get_merged_data()
 
         if not data:
             self._failures += 1
             if self.data and self._failures <= TOLERATED_STATUS_FAILURES:
-                return {**(self.data or {}), **base_data}
+                return _get_merged_data()
             return base_data
 
         self._failures = 0
