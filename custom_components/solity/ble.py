@@ -125,7 +125,11 @@ class SolityBleClient:
             return False
         if bluetooth.async_ble_device_from_address(self.hass, self.ble_mac, connectable=True) is not None:
             return True
+        if bluetooth.async_ble_device_from_address(self.hass, self.ble_mac, connectable=False) is not None:
+            return True
         if hasattr(bluetooth, "async_address_present"):
+            if bluetooth.async_address_present(self.hass, self.ble_mac, connectable=True):
+                return True
             if bluetooth.async_address_present(self.hass, self.ble_mac, connectable=False):
                 return True
         return False
@@ -134,6 +138,9 @@ class SolityBleClient:
         """Return the latest advertisement service info from any scanner/proxy."""
         if not self.ble_mac or not hasattr(bluetooth, "async_last_service_info"):
             return None
+        info = bluetooth.async_last_service_info(self.hass, self.ble_mac, connectable=True)
+        if info is not None:
+            return info
         return bluetooth.async_last_service_info(self.hass, self.ble_mac, connectable=False)
 
     async def open(self) -> bool:

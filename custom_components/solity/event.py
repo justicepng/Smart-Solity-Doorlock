@@ -12,6 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from . import SolityConfigEntry
 from .const import (
@@ -155,7 +156,7 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity, Rest
         self._trigger_event(
             EVENT_CLOSE,
             {
-                "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "datetime": dt_util.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "who": None,
                 "method": METHOD_MAP.get(AUTO_CLOSE_METHOD, AUTO_CLOSE_METHOD),
                 "method_code": AUTO_CLOSE_METHOD,

@@ -160,28 +160,31 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
             return
 
         @callback
-        def _on_ble_packet(service_info: Any, change: Any) -> None:
-            _LOGGER.debug(
-                "Solity door lock BLE packet received: mac=%s, rssi=%s",
+        def _on_ble_packet(service_info: Any, change: Any = None) -> None:
+            _LOGGER.info(
+                "Solity door lock BLE packet received: mac=%s, rssi=%s, connectable=%s",
                 service_info.address,
                 service_info.rssi,
+                getattr(service_info, "connectable", None),
             )
             # Notify log coordinator of BLE wake to trigger fast cloud poll or fallback open
             self._log_coord.handle_ble_wake(service_info.address, service_info.rssi)
             self.async_write_ha_state()
 
         self._ble_listener_registered = True
+        mac_lower = self._ble_client.ble_mac.lower()
         try:
             self.async_on_remove(
                 bluetooth.async_register_callback(
                     self.hass,
                     _on_ble_packet,
-                    {"address": self._ble_client.ble_mac.lower(), "connectable": False},
+                    {"address": mac_lower},
                     bluetooth.BluetoothScanningMode.PASSIVE,
                 )
             )
+            _LOGGER.info("Registered BLE listener for Solity door lock %s", mac_lower)
         except Exception as err:
-            _LOGGER.debug("Could not register BLE advertisement callback: %s", err)
+            _LOGGER.warning("Could not register BLE advertisement callback: %s", err)
 
     @callback
     def _handle_log_update(self) -> None:

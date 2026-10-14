@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api import SolityAuthError, SolityClient, SolityError
 from .const import (
@@ -182,6 +183,12 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
         self._last_ble_event_time = now
         baseline_dt = (self.data[0].get("logDateTime") or "") if self.data else ""
 
+        _LOGGER.info(
+            "Solity door lock BLE wake detected: mac=%s, rssi=%s. Triggering immediate cloud refresh...",
+            address,
+            rssi,
+        )
+
         # Immediately trigger fast cloud refresh
         self.hass.async_create_task(self.async_request_refresh())
 
@@ -195,12 +202,17 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
             current_dt = (self.data[0].get("logDateTime") or "") if self.data else ""
             if current_dt > baseline_dt:
                 # Cloud already brought the new detailed log!
+                _LOGGER.info(
+                    "Solity cloud log updated in time (%s > %s), skipping fallback",
+                    current_dt,
+                    baseline_dt,
+                )
                 return
 
             _LOGGER.info(
                 "Solity cloud log not received within 3.5s of BLE wake (gateway offline); triggering local BLE open event"
             )
-            now_dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            now_dt = dt_util.now().strftime("%Y-%m-%d %H:%M:%S")
             ble_log = {
                 "logDateTime": now_dt,
                 "logCode": "1",  # Open
