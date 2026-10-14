@@ -49,10 +49,21 @@
         "name": "마지막 출입"
       }
     },
+    "binary_sensor": {
+      "door": {
+        "name": "문"
+      }
+    },
     "event": {
       "door_event": {
         "name": "도어 이벤트"
       }
+    }
+  },
+  "issues": {
+    "session_taken": {
+      "title": "동일 계정 동시 사용 감지",
+      "description": "{email} 계정으로 스마트폰 앱 등 다른 기기에서 로그인하여 Home Assistant 연결이 끊겼습니다.\n\n솔리티 서버는 계정당 1개의 로그인만 허용합니다. 도어락 소유자 계정에서 다른 이메일로 구성원을 초대하여, Home Assistant 전용 계정을 만들어 사용하세요."
     }
   }
 }

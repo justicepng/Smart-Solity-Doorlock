@@ -5,7 +5,8 @@ from dataclasses import dataclass
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import SolityClient
@@ -18,10 +19,16 @@ from .const import (
     DEFAULT_LOG_SECONDS,
     DEFAULT_STATUS_MINUTES,
     DOMAIN,
+    ISSUE_SESSION_TAKEN,
 )
 from .coordinator import SolityLogCoordinator, SolityStatusCoordinator
 
-PLATFORMS: list[Platform] = [Platform.LOCK, Platform.SENSOR, Platform.EVENT]
+PLATFORMS: list[Platform] = [
+    Platform.LOCK,
+    Platform.SENSOR,
+    Platform.EVENT,
+    Platform.BINARY_SENSOR,
+]
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -51,11 +58,33 @@ class SolityData:
 type SolityConfigEntry = ConfigEntry[SolityData]
 
 
+def _issue_id(entry: SolityConfigEntry) -> str:
+    return f"{ISSUE_SESSION_TAKEN}_{entry.entry_id}"
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: SolityConfigEntry) -> bool:
     """Set up Smart Solity from a config entry."""
     session = async_get_clientsession(hass)
     client = SolityClient(session, entry.data[CONF_EMAIL], entry.data[CONF_HASHED_PWD])
     device_id = entry.data[CONF_DEVICE_ID]
+
+    # Clear previous session taken issue if any
+    ir.async_delete_issue(hass, DOMAIN, _issue_id(entry))
+
+    @callback
+    def _session_taken() -> None:
+        """The app logged in with this account and kicked HA out (and v.v.)."""
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            _issue_id(entry),
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=ISSUE_SESSION_TAKEN,
+            translation_placeholders={"email": entry.data[CONF_EMAIL]},
+        )
+
+    client.on_session_taken = _session_taken
 
     log_seconds = entry.options.get(CONF_LOG_SECONDS, DEFAULT_LOG_SECONDS)
     status_minutes = entry.options.get(CONF_STATUS_MINUTES, DEFAULT_STATUS_MINUTES)
@@ -67,6 +96,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: SolityConfigEntry) -> bo
     await log.async_config_entry_first_refresh()
 
     entry.runtime_data = SolityData(status=status, log=log)
+    entry.async_on_unload(status.attach_log(log))
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

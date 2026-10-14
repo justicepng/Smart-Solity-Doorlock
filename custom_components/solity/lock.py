@@ -269,13 +269,9 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
             return True
         if self._override is not None:
             return self._override
-        data = self.coordinator.data or {}
-        sub_latch = data.get("subLatch")
-        if sub_latch is not None and int(sub_latch) == 0:
-            return False
-        value = data.get("deadBolt")
-        if value is not None:
-            return int(value) == 1
+        locked = self.coordinator.is_locked
+        if locked is not None:
+            return locked
         # Default for auto-locking doorlocks: always physically locked
         return True
 
@@ -308,6 +304,13 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
             "card_count": data.get("cardCount"),
             "password_count": data.get("passwordCount"),
             "fingerprint_count": data.get("fingerPrintCount"),
+            "verifying": self.coordinator.verifying,
+            "not_answering": self.coordinator.recovering,
+            "confirmed": self.coordinator.last_poll_ok,
+            "last_verify_seconds": self.coordinator.last_verify_seconds,
+            "last_verify_polls": self.coordinator.last_verify_polls,
+            "last_verify_result": self.coordinator.last_verify_result,
+            "last_verify_trace": self.coordinator.last_verify_trace,
             "live_state": self._override is not None,
             "control_mode": control_mode,
             "ble_mac": ble_mac,
@@ -364,6 +367,7 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
             self.async_write_ha_state()
 
         self._set_override(True)
+        self.coordinator.start_verify()
         await self._log_coord.async_request_refresh()
 
     async def async_unlock(self, **kwargs: Any) -> None:
@@ -410,6 +414,8 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
             self.async_write_ha_state()
 
         self._set_override(False)
+        self.coordinator.mark_unlocked()
+        self.coordinator.start_verify()
         await self._log_coord.async_request_refresh()
 
 

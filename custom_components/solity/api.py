@@ -16,6 +16,8 @@ import logging
 from urllib.parse import urlencode
 
 import aiohttp
+from collections.abc import Callable
+import time
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -23,6 +25,7 @@ BASE_URL = "https://www.smartsolity.com"
 PHONE_TOKEN = "ha-solity"  # a stable, HA-dedicated device id (own session)
 DEFAULT_TIMEOUT = aiohttp.ClientTimeout(total=15)
 CONTROL_TIMEOUT = aiohttp.ClientTimeout(total=20)
+TOKEN_FRESH_SECONDS = 25 * 24 * 3600
 
 
 def hash_password(password: str) -> str:
@@ -36,6 +39,13 @@ class SolityError(Exception):
 
 class SolityAuthError(SolityError):
     """Authentication failed (bad credentials / expired session)."""
+
+
+def _conn_error(err: Exception) -> SolityError:
+    """Readable error: aiohttp timeouts stringify to ''."""
+    if isinstance(err, asyncio.TimeoutError):
+        return SolityError("no response from the lock (timed out)")
+    return SolityError(f"connection error: {err}")
 
 
 class SolityClient:
@@ -52,7 +62,9 @@ class SolityClient:
         self._hashed = hashed_pwd
         self._token: str | None = None
         self._token_pwd: str | None = None
+        self._token_at: float | None = None
         self._lock = asyncio.Lock()
+        self.on_session_taken: Callable[[], None] | None = None
 
     async def _raw(
         self,
@@ -100,6 +112,7 @@ class SolityClient:
 
             self._token = contents["token"]
             self._token_pwd = contents.get("tokenPwd")
+            self._token_at = time.monotonic()
             _LOGGER.debug("Solity login OK")
 
     async def _authed(
@@ -115,10 +128,22 @@ class SolityClient:
             status, text = await self._raw(method, path, body, self._token, self._token_pwd, timeout)
             if status in (401, 403):
                 _LOGGER.debug("Solity %s -> %s, re-login", path, status)
+                taken = (
+                    self._token_at is not None
+                    and time.monotonic() - self._token_at < TOKEN_FRESH_SECONDS
+                )
                 await self.login()
+                if taken:
+                    _LOGGER.warning(
+                        "Smart Solity session was taken over by another login with "
+                        "the same account (e.g. the phone app); logged in again. "
+                        "Use a separate (invited member) account for Home Assistant"
+                    )
+                    if self.on_session_taken:
+                        self.on_session_taken()
                 status, text = await self._raw(method, path, body, self._token, self._token_pwd, timeout)
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
-            raise SolityError(f"connection error: {err}") from err
+            raise _conn_error(err) from err
 
         if status in (401, 403):
             raise SolityAuthError(f"HTTP {status}")

@@ -49,10 +49,21 @@
         "name": "Last access"
       }
     },
+    "binary_sensor": {
+      "door": {
+        "name": "Door"
+      }
+    },
     "event": {
       "door_event": {
         "name": "Door event"
       }
+    }
+  },
+  "issues": {
+    "session_taken": {
+      "title": "Smart Solity session taken over",
+      "description": "Another device (such as the smartphone app) logged in with {email}, kicking Home Assistant out.\n\nSolity allows only one active session per account. Invite a separate member account from the owner app and configure Home Assistant with that account."
     }
   }
 }
