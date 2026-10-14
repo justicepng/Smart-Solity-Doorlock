@@ -226,6 +226,7 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
             self.async_write_ha_state()
         elif code == LOG_CODE_CLOSE:
             self._set_override(True)  # locked
+            self.coordinator.mark_locked()
 
     @callback
     def _set_override(self, locked: bool) -> None:
@@ -248,6 +249,7 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
         _LOGGER.debug("Solity auto-close delay passed -> reverting to locked")
         self._override = True  # Solity auto-locks physically!
         self._cancel_revert = None
+        self.coordinator.mark_locked()
         self.async_write_ha_state()
 
     @property

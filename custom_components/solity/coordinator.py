@@ -20,6 +20,7 @@ from .const import (
     CONF_BLE_MAC,
     CONF_MEMBER_ID,
     DOMAIN,
+    LOG_CODE_CLOSE,
     LOG_MEDIA_REMOTE,
     OPEN_LOG_CODES,
     RECOVER_DELAYS,
@@ -206,7 +207,11 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
     def door_open(self) -> bool | None:
         """Door state from the door-detect latch (subLatch 0 = open)."""
         value = _as_int((self.data or {}).get("subLatch"))
-        return None if value is None else value == 0
+        if value is not None:
+            return value == 0
+        if self.is_locked is True:
+            return False
+        return None
 
     @property
     def verifying(self) -> bool:
@@ -227,6 +232,16 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
             data.pop("subLatch", None)
         self._door_assumed = assume_open
         self.last_poll_ok = False
+        self.async_set_updated_data(data)
+
+    @callback
+    def mark_locked(self) -> None:
+        """A close/lock happened: set deadBolt=1 and subLatch=1."""
+        data = dict(self.data or {})
+        data["deadBolt"] = 1
+        data["subLatch"] = 1
+        self._door_assumed = False
+        self.last_poll_ok = True
         self.async_set_updated_data(data)
 
     @callback
@@ -381,6 +396,9 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
             self._last_log_dt = newest
             opens = [x for x in new if str(x.get("logCode")) in OPEN_LOG_CODES]
             if not opens:
+                closes = [x for x in new if str(x.get("logCode")) == LOG_CODE_CLOSE]
+                if closes:
+                    self.mark_locked()
                 return
             if all(str(x.get("mediaType")) == LOG_MEDIA_REMOTE for x in opens):
                 if not self.verifying:
