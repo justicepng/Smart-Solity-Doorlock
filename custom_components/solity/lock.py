@@ -172,19 +172,23 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
             self.async_write_ha_state()
 
         self._ble_listener_registered = True
-        mac_lower = self._ble_client.ble_mac.lower()
-        try:
-            self.async_on_remove(
-                bluetooth.async_register_callback(
-                    self.hass,
-                    _on_ble_packet,
-                    {"address": mac_lower},
-                    bluetooth.BluetoothScanningMode.PASSIVE,
+        raw_mac = (self._ble_client.ble_mac or "").strip()
+        if not raw_mac:
+            return
+        mac_variants = {raw_mac.upper(), raw_mac.lower()}
+        for mac in mac_variants:
+            try:
+                self.async_on_remove(
+                    bluetooth.async_register_callback(
+                        self.hass,
+                        _on_ble_packet,
+                        {"address": mac},
+                        bluetooth.BluetoothScanningMode.PASSIVE,
+                    )
                 )
-            )
-            _LOGGER.info("Registered BLE listener for Solity door lock %s", mac_lower)
-        except Exception as err:
-            _LOGGER.warning("Could not register BLE advertisement callback: %s", err)
+                _LOGGER.info("Registered BLE listener for Solity door lock %s", mac)
+            except Exception as err:
+                _LOGGER.warning("Could not register BLE advertisement callback for %s: %s", mac, err)
 
     @callback
     def _handle_log_update(self) -> None:

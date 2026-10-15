@@ -447,7 +447,7 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
         self._last_ble_event_time = now
         baseline_dt = (self.data[0].get("logDateTime") or "") if self.data else ""
 
-        _LOGGER.info(
+        _LOGGER.warning(
             "Solity door lock BLE wake detected: mac=%s, rssi=%s. Triggering immediate cloud refresh...",
             address,
             rssi,
@@ -473,7 +473,7 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
                 )
                 return
 
-            _LOGGER.info(
+            _LOGGER.warning(
                 "Solity cloud log not received within 3.5s of BLE wake (gateway offline); triggering local BLE open event"
             )
             now_dt = dt_util.now().strftime("%Y-%m-%d %H:%M:%S")
