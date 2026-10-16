@@ -18,6 +18,7 @@ from .api import SolityAuthError, SolityClient, SolityError, hash_password
 from .const import (
     CONF_AUTO_CLOSE_SECONDS,
     CONF_BLE_APP_KEY,
+    CONF_BLE_FALLBACK_SECONDS,
     CONF_BLE_MAC,
     CONF_CONTROL_MODE,
     CONF_DEVICE_ID,
@@ -32,14 +33,17 @@ from .const import (
     CONTROL_MODE_CLOUD,
     CONTROL_MODE_HYBRID,
     DEFAULT_AUTO_CLOSE_SECONDS,
+    DEFAULT_BLE_FALLBACK_SECONDS,
     DEFAULT_CONTROL_MODE,
     DEFAULT_LOG_SECONDS,
     DEFAULT_STATUS_MINUTES,
     DOMAIN,
     MAX_AUTO_CLOSE_SECONDS,
+    MAX_BLE_FALLBACK_SECONDS,
     MAX_LOG_SECONDS,
     MAX_STATUS_MINUTES,
     MIN_AUTO_CLOSE_SECONDS,
+    MIN_BLE_FALLBACK_SECONDS,
     MIN_LOG_SECONDS,
     MIN_STATUS_MINUTES,
     get_face_map,
@@ -165,6 +169,9 @@ class SolityOptionsFlow(OptionsFlow):
         auto_close_default = opts.get(
             CONF_AUTO_CLOSE_SECONDS, DEFAULT_AUTO_CLOSE_SECONDS
         )
+        fallback_default = opts.get(
+            CONF_BLE_FALLBACK_SECONDS, DEFAULT_BLE_FALLBACK_SECONDS
+        )
 
         schema_dict = {
             vol.Required(CONF_CONTROL_MODE, default=control_mode_default): vol.In(
@@ -175,6 +182,12 @@ class SolityOptionsFlow(OptionsFlow):
                 }
             ),
             vol.Optional(CONF_BLE_MAC, default=ble_mac_default): str,
+            vol.Required(CONF_BLE_FALLBACK_SECONDS, default=fallback_default): vol.All(
+                vol.Coerce(int),
+                vol.Range(
+                    min=MIN_BLE_FALLBACK_SECONDS, max=MAX_BLE_FALLBACK_SECONDS
+                ),
+            ),
             vol.Required(CONF_LOG_SECONDS, default=log_default): vol.All(
                 vol.Coerce(int),
                 vol.Range(min=MIN_LOG_SECONDS, max=MAX_LOG_SECONDS),

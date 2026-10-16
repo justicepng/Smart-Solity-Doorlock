@@ -18,8 +18,10 @@ from homeassistant.util import dt as dt_util
 from .api import SolityAuthError, SolityClient, SolityError
 from .const import (
     CONF_BLE_APP_KEY,
+    CONF_BLE_FALLBACK_SECONDS,
     CONF_BLE_MAC,
     CONF_MEMBER_ID,
+    DEFAULT_BLE_FALLBACK_SECONDS,
     DOMAIN,
     LOG_CODE_CLOSE,
     LOG_MEDIA_REMOTE,
@@ -472,19 +474,27 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
         real_logs = [x for x in (self.data or []) if not x.get("ble_fallback")]
         self._ble_baseline_dt = (real_logs[0].get("logDateTime") or "") if real_logs else ""
 
+        fallback_sec = float(
+            self.config_entry.options.get(
+                CONF_BLE_FALLBACK_SECONDS, DEFAULT_BLE_FALLBACK_SECONDS
+            )
+        )
+
         _LOGGER.warning(
-            "Solity door lock BLE wake detected: mac=%s, rssi=%s. Triggering cloud refresh sequence...",
+            "Solity door lock BLE wake detected: mac=%s, rssi=%s. Triggering cloud refresh sequence (wait up to %ss)...",
             address,
             rssi,
+            int(fallback_sec),
         )
 
         self._cancel_ble_pending()
 
-        # Immediately trigger fast cloud refresh and schedule follow-up polls (4s, 10s, 18s)
+        # Immediately trigger fast cloud refresh and schedule follow-up polls
         self.hass.async_create_task(self.async_request_refresh())
+        poll_delays = [d for d in (3.0, 7.0, 12.0, 17.0, 22.0, 28.0, 35.0, 42.0) if d < fallback_sec]
         self._ble_retry_handles = [
             async_call_later(self.hass, delay, self._async_retry_refresh)
-            for delay in (4.0, 10.0, 18.0)
+            for delay in poll_delays
         ]
 
         @callback
@@ -502,7 +512,8 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
                 return
 
             _LOGGER.warning(
-                "Solity cloud log not received within 25s of BLE wake (gateway offline/slow); triggering local BLE open event"
+                "Solity cloud log not received within %ss of BLE wake (gateway offline/slow); triggering local BLE open event",
+                int(fallback_sec),
             )
             now_dt = dt_util.now().strftime("%Y-%m-%d %H:%M:%S")
             ble_log = {
@@ -518,8 +529,8 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
             current = [x for x in (self.data or []) if not x.get("ble_fallback")]
             self.async_set_updated_data([ble_log] + current)
 
-        # Wait 25 seconds for cloud log (gateway/wifi sync) before using fallback
-        self._cancel_ble_fallback = async_call_later(self.hass, 25.0, _trigger_fallback)
+        # Wait configured seconds (default 45s) for cloud log (gateway/wifi sync) before using fallback
+        self._cancel_ble_fallback = async_call_later(self.hass, fallback_sec, _trigger_fallback)
 
     async def _async_update_data(self) -> list[dict]:
         try:

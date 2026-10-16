@@ -32,6 +32,7 @@
         "data": {
           "control_mode": "Control Mode",
           "ble_mac": "Doorlock Bluetooth MAC address (optional)",
+          "ble_fallback_seconds": "Cloud detailed log wait timeout after BLE wake (seconds)",
           "log_seconds": "Event-log poll interval (seconds)",
           "status_minutes": "Status/battery poll interval (minutes)",
           "auto_close_seconds": "Auto-lock close delay (seconds)",

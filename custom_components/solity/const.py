@@ -37,6 +37,12 @@ DEFAULT_AUTO_CLOSE_SECONDS = 5
 MIN_AUTO_CLOSE_SECONDS = 1
 MAX_AUTO_CLOSE_SECONDS = 300
 
+# How long to wait for detailed cloud log after BLE wake before fallback
+CONF_BLE_FALLBACK_SECONDS = "ble_fallback_seconds"
+DEFAULT_BLE_FALLBACK_SECONDS = 45
+MIN_BLE_FALLBACK_SECONDS = 15
+MAX_BLE_FALLBACK_SECONDS = 180
+
 # Attribute values tagging the synthesized auto-lock close event.
 AUTO_CLOSE_METHOD = "auto"
 AUTO_CLOSE_LOG_TYPE = "AUTO_LOCK"

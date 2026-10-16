@@ -3,7 +3,7 @@
 솔리티(SOLITY) 스마트 도어락을 **SmartThings 없이** 솔리티 클라우드 API 및 ESPHome 블루투스 프록시(Bluetooth Proxy)로 직접 연동하는 Home Assistant 커스텀 통합구성요소입니다.
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/default)
-[![version](https://img.shields.io/badge/version-v1.6.3-blue.svg)](https://github.com/justicepng/Smart-Solity-Doorlock/releases)
+[![version](https://img.shields.io/badge/version-v1.6.4-blue.svg)](https://github.com/justicepng/Smart-Solity-Doorlock/releases)
 
 ---
 
@@ -157,6 +157,13 @@ action:
 ---
 
 ## 📋 릴리스 변경 이력 (Changelog)
+
+### v1.6.4 (2026-10-16)
+- **클라우드 상세 로그 대기 시간 최대 45초로 연장 & 사용자 옵션화**:
+  - 게이트웨이 및 클라우드 업로드 지연(통상 15~25초)을 충분히 수용하도록 BLE 감지 후 기본 대기 시간을 **45초**로 대폭 확대.
+  - 조밀한 주기적 재조회(3s, 7s, 12s, 17s, 22s, 28s, 35s, 42s)를 수행하여 클라우드에 로그가 도착하는 순간 즉시 감지하여 알림 발송.
+  - 사용자가 네트워크 환경에 맞게 HA [구성] 화면에서 대기 시간(15초~180초)을 직접 설정 가능.
+  - '블루투스 감지' 알림의 성급한 발송을 방지하고, 100% 서버 원본 기록(얼굴인식, 실내개폐, 비밀번호 등)으로 안정적 알림 제공.
 
 ### v1.6.3 (2026-10-16)
 - **통합구성요소 [구성] UI에서 얼굴 1~10번 사용자 이름 직접 관리 지원**:
