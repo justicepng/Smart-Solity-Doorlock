@@ -3,7 +3,7 @@
 솔리티(SOLITY) 스마트 도어락을 **SmartThings 없이** 솔리티 클라우드 API 및 ESPHome 블루투스 프록시(Bluetooth Proxy)로 직접 연동하는 Home Assistant 커스텀 통합구성요소입니다.
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/default)
-[![version](https://img.shields.io/badge/version-v1.5.4-blue.svg)](https://github.com/justicepng/Smart-Solity-Doorlock/releases)
+[![version](https://img.shields.io/badge/version-v1.6.1-blue.svg)](https://github.com/justicepng/Smart-Solity-Doorlock/releases)
 
 ---
 
@@ -11,6 +11,7 @@
 
 - 🔓 **잠금 / 해제(열기)** — `lock` 엔티티 지원 (도어락 물리 특성에 맞춘 안정적인 잠김 상태 유지)
 - 🚪 **문 덜 닫힘(Sub-Latch) & 데드볼트 미잠김 감지** — 모티스 내 물리 서브 랫치 핀 센서와 연동하여 문이 덜 닫혔거나 데드볼트가 걸렸을 때 미잠김 상태 감지 및 `is_unclosed` 속성 제공
+- 🚪 **현관문 열림 감지 바이너리 센서** — 모티스 서브 랫치와 연동되어 현관문 짝의 물리적 열림/닫힘 상태를 감지하는 독립 바이너리 센서 제공 (`binary_sensor.<도어락이름>_door`)
 - 📡 **블루투스 프록시(Bluetooth Proxy) 로컬 직결 제어** — ESPHome 블루투스 프록시를 통해 클라우드 경유 없이 0초대 초고속 로컬 제어 지원
 - 🔀 **3가지 제어 모드 (하이브리드 / 블루투스 / 클라우드)** — 블루투스를 우선 시도한 후 실패 시 클라우드로 자동 폴백하는 안심 하이브리드 모드 지원
 - 👤 **얼굴키(1~7번) 별명 실시간 자동 동기화** — 솔리티 공식 앱에서 수정한 얼굴인식 키 별명을 클라우드 API(`/api_v2/addrNickname`)를 통해 수동 입력 없이 100% 자동 동기화 (`solity.sync_face_nicknames` 서비스 제공)
@@ -77,12 +78,18 @@ Home Assistant **설정** ➔ **기기 및 서비스** ➔ **통합구성요소 
 
 ## 📊 제공 엔티티 및 속성
 
-| 엔티티 | 설명 | 주요 속성 |
-| :--- | :--- | :--- |
-| `lock.<도어락이름>` | 도어락 잠금/해제 및 실시간 개폐 상태 | `sub_latch`, `system_mode`, `is_unclosed`, `control_mode`, `ble_mac`, `ble_available`, `last_access_who`, `last_access_method`, `last_access_time` |
-| `sensor.<도어락이름>_battery` | 배터리 잔량 (%) | `battery`, `device_class: battery` |
-| `sensor.<도어락이름>_last_access` | 최근 출입 기록 (누가 / 어떻게 / 시각) | `who`, `method`, `method_code`, `direction` (`inside`/`outside`), `datetime` |
-| `event.<도어락이름>_door_event` | 실시간 출입 이벤트 발생기 (`open`/`close`) | `event_type`, `who`, `method`, `direction`, `log_code`, `synthetic` |
+| 엔티티 | 표시 이름 (기본값) | 설명 | 주요 속성 |
+| :--- | :--- | :--- | :--- |
+| `lock.<도어락이름>` | `우리집 도어락` | 도어락 데드볼트 잠금/해제 및 상태 | `sub_latch`, `system_mode`, `is_unclosed`, `control_mode`, `ble_mac`, `ble_available`, `last_access_who`, `last_access_method`, `last_access_time` |
+| `sensor.<도어락이름>_battery` | `배터리` | 배터리 잔량 (%) | `battery`, `device_class: battery` |
+| `sensor.<도어락이름>_last_access` | `마지막 출입 기록` | 대시보드 표시용 최근 출입 기록 (누가 / 어떻게 / 시각) | `who`, `method`, `method_code`, `direction` (`inside`/`outside`), `datetime` |
+| `event.<도어락이름>_door_event` | `출입 알림 이벤트` | 실시간 출입 이벤트 발생기 (`open`/`close`) (알림/자동화 전용) | `event_type`, `who`, `method`, `direction`, `log_code`, `synthetic` |
+| `binary_sensor.<도어락이름>_door` | `현관문 열림 감지` | 물리적 현관문짝 접점 센서 (모티스 subLatch 연동: 문틀 닫힘/열림) | `confirmed`, `device_class: door` |
+
+### 💡 도어락 관련 센서 3종의 역할 구분
+1. **`sensor.last_access` (마지막 출입 기록)**: 대시보드 카드에 "현재 가장 마지막에 출입한 사람"을 고정 텍스트로 표시하는 상태형 센서입니다. (동일 인물이 연속 출입하더라도 텍스트 상태를 유지)
+2. **`event.door_event` (출입 알림 이벤트)**: 문이 열릴 때마다 고유한 타임스탬프의 펄스 이벤트를 발생시켜, 동일 인물이 1분 간격으로 연속 출입하더라도 텔레그램 알림이나 자동화가 100% 누락 없이 실행되도록 하는 이벤트 엔티티입니다.
+3. **`binary_sensor.door` (현관문 열림 감지)**: 잠금장치(데드볼트)와 별개로, 모티스의 서브 랫치(`subLatch`) 물리 접점을 통해 현관문 짝이 실제로 문틀에 닫혀있는지(`off`), 열려있는지(`on`)를 감지하는 바이너리 센서입니다.
 
 ### 🔍 주요 진단 속성 설명
 - `sub_latch`: 모티스 서브 랫치 핀 센서 상태 (`1`: 문 닫힘, `0`: 문 덜 닫힘/열림)
@@ -146,6 +153,23 @@ action:
 - **원격 열기/제어 (클라우드)**: 클라우드를 통한 원격 제어는 도어락과 Wi-Fi 사이에 **스마트솔리티 Wi-Fi 게이트웨이(GW-100 등)**가 연동되어 있어야 동작합니다.
 - **로컬 블루투스 직결 제어**: 집안에 ESPHome 블루투스 프록시가 설치되어 있고 도어락과 BLE 통신 범위(수 미터 이내)에 위치해야 합니다.
 - **비밀번호 보안**: 계정 비밀번호는 원문 대신 솔리티 앱과 동일한 SHA-256 해시 형태로만 안전하게 보관됩니다.
+
+---
+
+## 📋 릴리스 변경 이력 (Changelog)
+
+### v1.6.1 (2026-10-16)
+- **BLE 폴백 타이밍 최적화 (10초)**: 로컬 BLE 감지 후 클라우드 상세 로그 대기 시간을 3.5초에서 10.0초로 연장하여 스마트브릿지 게이트웨이의 클라우드 동기화 시간 확보.
+- **클라우드 상세 로그 우선 복구**: BLE 감지 이전 시점보다 최신 클라우드 로그가 도착하면 임시 블루투스 로그를 즉시 폐기하고 상세 로그(얼굴인식 등)로 대체.
+- **엔티티 기본 표시 이름 직관적 개선**:
+  - `마지막 출입` ➔ `마지막 출입 기록` (대시보드 표시용)
+  - `도어 이벤트` ➔ `출입 알림 이벤트` (텔레그램 자동화용)
+  - `문` ➔ `현관문 열림 감지` (물리 현관문짝 접점 센서)
+
+### v1.6.0 (2026-10-14)
+- **현관문 접점 바이너리 센서(`binary_sensor.<도어락이름>_door`) 추가**: 모티스 서브 랫치(`subLatch`) 기반 물리 문열림 감지.
+- **초고속 상태 검증 버스트(`_async_verify`)**: 문열림 후 불필요한 15초 HTTP 대기를 제거하고 문 상태에 따른 적응형 재확인.
+- **도어락 복구 워커(`_async_recover`)**: 게이트웨이 일시 응답 지연 시 엔티티 불가(Unavailable) 플래핑 방지 및 단계적 백오프 재시도.
 
 ---
 
