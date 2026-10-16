@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from typing import Any
 
 from homeassistant.components import bluetooth
@@ -108,6 +109,7 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
             ble_mac=initial_ble_mac,
             app_key=entry.data.get(CONF_BLE_APP_KEY),
         )
+        self._init_monotonic = time.monotonic()
 
     @property
     def _face_map(self) -> dict[str, str]:
@@ -161,6 +163,14 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
 
         @callback
         def _on_ble_packet(service_info: Any, change: Any = None) -> None:
+            # Ignore stale cached advertisement replayed on startup (within 5 seconds)
+            if time.monotonic() - getattr(self, "_init_monotonic", 0.0) < 5.0:
+                _LOGGER.debug(
+                    "Ignoring cached startup BLE packet for Solity door lock %s",
+                    service_info.address,
+                )
+                return
+
             _LOGGER.info(
                 "Solity door lock BLE packet received: mac=%s, rssi=%s, connectable=%s",
                 service_info.address,
