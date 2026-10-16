@@ -46,17 +46,17 @@
         "name": "배터리"
       },
       "last_access": {
-        "name": "마지막 출입"
+        "name": "마지막 출입 기록"
       }
     },
     "binary_sensor": {
       "door": {
-        "name": "문"
+        "name": "현관문 열림 감지"
       }
     },
     "event": {
       "door_event": {
-        "name": "도어 이벤트"
+        "name": "출입 알림 이벤트"
       }
     }
   },

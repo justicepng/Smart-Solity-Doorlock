@@ -46,17 +46,17 @@
         "name": "Battery"
       },
       "last_access": {
-        "name": "Last access"
+        "name": "Last access record"
       }
     },
     "binary_sensor": {
       "door": {
-        "name": "Door"
+        "name": "Door open sensor"
       }
     },
     "event": {
       "door_event": {
-        "name": "Door event"
+        "name": "Access notification event"
       }
     }
   },
