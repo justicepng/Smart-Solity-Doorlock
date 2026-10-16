@@ -34,9 +34,19 @@
           "ble_mac": "Doorlock Bluetooth MAC address (optional)",
           "log_seconds": "Event-log poll interval (seconds)",
           "status_minutes": "Status/battery poll interval (minutes)",
-          "auto_close_seconds": "Auto-lock close delay (seconds)"
+          "auto_close_seconds": "Auto-lock close delay (seconds)",
+          "face_name_1": "Face Key 1 User Name",
+          "face_name_2": "Face Key 2 User Name",
+          "face_name_3": "Face Key 3 User Name",
+          "face_name_4": "Face Key 4 User Name",
+          "face_name_5": "Face Key 5 User Name",
+          "face_name_6": "Face Key 6 User Name",
+          "face_name_7": "Face Key 7 User Name",
+          "face_name_8": "Face Key 8 User Name",
+          "face_name_9": "Face Key 9 User Name",
+          "face_name_10": "Face Key 10 User Name"
         },
-        "description": "Configure control mode (Cloud, Bluetooth Proxy, Hybrid) and poll intervals. Face recognition nicknames are automatically synchronized with the Solity Cloud app and default configuration."
+        "description": "Configure control mode (Cloud, Bluetooth Proxy, Hybrid), poll intervals, and face recognition key user names. Whenever a new face key is added, simply assign their name here without modifying any code."
       }
     }
   },

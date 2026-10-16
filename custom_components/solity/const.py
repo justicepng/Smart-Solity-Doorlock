@@ -141,10 +141,7 @@ DEFAULT_FACE_MAP: dict[str, str] = {
     "4": "유경선",
     "5": "유경선",
     "6": "유경선",
-    "7": "정상수",
-    "8": "정상수",
     "9": "정상수",
-    "10": "정상수",
 }
 
 
@@ -247,6 +244,13 @@ def format_access_log(entry: dict, face_map: dict[str, str] | None = None) -> di
     elif is_face:
         method_name = "얼굴인식"
         direction = "outside"
+        if not display_who:
+            val1 = str(entry.get("logMsgVal1") or "").strip()
+            if not val1 and msg:
+                m = re.search(r"(\d+)번\s*얼굴", msg)
+                if m:
+                    val1 = m.group(1)
+            display_who = f"{val1}번 얼굴" if val1 else "얼굴인식"
     elif method_code == "ble":
         method_name = "블루투스 감지"
         direction = "unknown"

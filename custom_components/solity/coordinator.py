@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from datetime import datetime, timedelta
 from typing import Any
@@ -36,6 +37,7 @@ from .const import (
     VERIFY_TRACE_LEN,
     VERIFY_UNKNOWN_RECHECK,
     VERIFY_WINDOW,
+    get_face_map,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -534,6 +536,28 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
                     last_sync = getattr(status_coord, "_last_face_sync", 0.0)
                     if (is_face and (now - last_sync > 60)) or (now - last_sync > 600):
                         await status_coord.async_sync_face_nicknames(force=True)
+
+                if is_face:
+                    val1 = str(latest.get("logMsgVal1") or "").strip()
+                    if not val1 and latest.get("logMessage"):
+                        m = re.search(r"(\d+)번\s*얼굴", str(latest.get("logMessage")))
+                        if m:
+                            val1 = m.group(1)
+                    if val1:
+                        server_map = status_coord.face_nicknames if status_coord else None
+                        face_map = get_face_map(self.config_entry.options, server_map)
+                        if val1 not in face_map:
+                            _LOGGER.warning(
+                                "Unmapped face key slot %s detected! Prompting user via persistent notification",
+                                val1,
+                            )
+                            if hasattr(self.hass.components, "persistent_notification"):
+                                self.hass.components.persistent_notification.async_create(
+                                    f"도어락에서 새로운 얼굴키({val1}번 슬롯) 출입이 감지되었습니다.\n\n"
+                                    f"[설정 > 기기 및 서비스 > Smart Solity > 구성]에서 사용자 이름을 입력하시면 다음 출입부터 이름으로 자동 표시됩니다.",
+                                    title="솔리티 도어락 새 얼굴키 감지",
+                                    notification_id=f"solity_new_face_{val1}",
+                                )
 
             # Check if cloud has caught up with a new log
             newest_cloud_dt = (data[0].get("logDateTime") or "") if data else ""

@@ -42,6 +42,7 @@ from .const import (
     MIN_AUTO_CLOSE_SECONDS,
     MIN_LOG_SECONDS,
     MIN_STATUS_MINUTES,
+    get_face_map,
 )
 
 USER_SCHEMA = vol.Schema(
@@ -191,6 +192,15 @@ class SolityOptionsFlow(OptionsFlow):
                 ),
             ),
         }
+
+        # Face recognition user name mappings (Slots 1 to 10)
+        current_faces = get_face_map(opts)
+        for k in range(1, 11):
+            key = f"face_name_{k}"
+            val = opts.get(key)
+            if val is None:
+                val = current_faces.get(str(k), "")
+            schema_dict[vol.Optional(key, default=val)] = str
 
         return self.async_show_form(
             step_id="init",

@@ -3,7 +3,7 @@
 솔리티(SOLITY) 스마트 도어락을 **SmartThings 없이** 솔리티 클라우드 API 및 ESPHome 블루투스 프록시(Bluetooth Proxy)로 직접 연동하는 Home Assistant 커스텀 통합구성요소입니다.
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/default)
-[![version](https://img.shields.io/badge/version-v1.6.2-blue.svg)](https://github.com/justicepng/Smart-Solity-Doorlock/releases)
+[![version](https://img.shields.io/badge/version-v1.6.3-blue.svg)](https://github.com/justicepng/Smart-Solity-Doorlock/releases)
 
 ---
 
@@ -157,6 +157,14 @@ action:
 ---
 
 ## 📋 릴리스 변경 이력 (Changelog)
+
+### v1.6.3 (2026-10-16)
+- **통합구성요소 [구성] UI에서 얼굴 1~10번 사용자 이름 직접 관리 지원**:
+  - 도어락에 새로운 얼굴이 등록되거나 변경되었을 때, **소스코드 수정이나 재부팅 없이** Home Assistant의 **[설정 > 기기 및 서비스 > Smart Solity > 구성]** 화면에서 슬롯 번호별로 사용자 이름을 직접 등록/수정 가능.
+- **새로운 얼굴키 출입 시 Home Assistant 자동 영구 알림(Persistent Notification) 제공**:
+  - 아직 이름이 등록되지 않은 새로운 슬롯 번호로 출입 시, HA 상단 알림창에 "새로운 얼굴키(N번) 출입 감지됨" 알림을 자동으로 띄워 손쉽게 설정으로 유도.
+- **기본 얼굴 매핑 테이블 정돈**:
+  - 미사용/가상 슬롯(7, 8, 10번 등)에 대한 임의 매핑을 제거하여, 새로 추가된 얼굴이 엉뚱한 가족 이름으로 잘못 표시되는 현상 원천 방지.
 
 ### v1.6.2 (2026-10-16)
 - **클라우드 얼굴인식/출입 상세 로그 대기 시간 대폭 연장 (25초)**: 블루투스 신호 감지 후 게이트웨이가 클라우드로 로그를 업로드할 때까지 충분한 시간(25초) 동안 단계적 재조회(4s, 10s, 18s)를 수행하여, 성급한 '블루투스 감지' 알림 대신 진짜 얼굴인식 알림이 먼저 나가도록 개선.
