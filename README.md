@@ -3,7 +3,7 @@
 솔리티(SOLITY) 스마트 도어락을 **SmartThings 없이** 솔리티 클라우드 API 및 ESPHome 블루투스 프록시(Bluetooth Proxy)로 직접 연동하는 Home Assistant 커스텀 통합구성요소입니다.
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/default)
-[![version](https://img.shields.io/badge/version-v1.6.1-blue.svg)](https://github.com/justicepng/Smart-Solity-Doorlock/releases)
+[![version](https://img.shields.io/badge/version-v1.6.2-blue.svg)](https://github.com/justicepng/Smart-Solity-Doorlock/releases)
 
 ---
 
@@ -157,6 +157,11 @@ action:
 ---
 
 ## 📋 릴리스 변경 이력 (Changelog)
+
+### v1.6.2 (2026-10-16)
+- **클라우드 얼굴인식/출입 상세 로그 대기 시간 대폭 연장 (25초)**: 블루투스 신호 감지 후 게이트웨이가 클라우드로 로그를 업로드할 때까지 충분한 시간(25초) 동안 단계적 재조회(4s, 10s, 18s)를 수행하여, 성급한 '블루투스 감지' 알림 대신 진짜 얼굴인식 알림이 먼저 나가도록 개선.
+- **BLE 폴백 시 기준 시간 오염 방지 버그 수정**: 임시 블루투스 이벤트 발생 시 내부 기준 시간(`_last_dt`)이 앞당겨져 뒤이어 도착한 클라우드의 실제 얼굴인식 로그가 버려지던 문제 해결.
+- **클라우드 실시간 동기화 복구**: 클라우드 로그 수신 시 진행 중이던 블루투스 폴백 타이머 및 재시도 즉시 취소.
 
 ### v1.6.1 (2026-10-16)
 - **BLE 폴백 타이밍 최적화 (10초)**: 로컬 BLE 감지 후 클라우드 상세 로그 대기 시간을 3.5초에서 10.0초로 연장하여 스마트브릿지 게이트웨이의 클라우드 동기화 시간 확보.

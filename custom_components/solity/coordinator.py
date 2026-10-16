@@ -435,6 +435,28 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
         self._recent_ble_log: dict | None = None
         self._last_ble_event_time: float = 0.0
         self._cancel_ble_fallback = None
+        self._ble_retry_handles: list[CALLBACK_TYPE] = []
+
+    @callback
+    def _cancel_ble_pending(self) -> None:
+        """Cancel pending fallback timer and scheduled cloud refresh retries."""
+        if self._cancel_ble_fallback is not None:
+            self._cancel_ble_fallback()
+            self._cancel_ble_fallback = None
+        for handle in self._ble_retry_handles:
+            try:
+                handle()
+            except Exception:
+                pass
+        self._ble_retry_handles = []
+
+    @callback
+    def _async_retry_refresh(self, _now: Any) -> None:
+        """Poll cloud if a newer log has not yet arrived."""
+        real_logs = [x for x in (self.data or []) if not x.get("ble_fallback")]
+        current_dt = (real_logs[0].get("logDateTime") or "") if real_logs else ""
+        if current_dt <= getattr(self, "_ble_baseline_dt", ""):
+            self.hass.async_create_task(self.async_request_refresh())
 
     @callback
     def handle_ble_wake(self, address: str, rssi: int | None = None) -> None:
@@ -449,21 +471,23 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
         self._ble_baseline_dt = (real_logs[0].get("logDateTime") or "") if real_logs else ""
 
         _LOGGER.warning(
-            "Solity door lock BLE wake detected: mac=%s, rssi=%s. Triggering immediate cloud refresh...",
+            "Solity door lock BLE wake detected: mac=%s, rssi=%s. Triggering cloud refresh sequence...",
             address,
             rssi,
         )
 
-        # Immediately trigger fast cloud refresh
-        self.hass.async_create_task(self.async_request_refresh())
+        self._cancel_ble_pending()
 
-        if self._cancel_ble_fallback is not None:
-            self._cancel_ble_fallback()
-            self._cancel_ble_fallback = None
+        # Immediately trigger fast cloud refresh and schedule follow-up polls (4s, 10s, 18s)
+        self.hass.async_create_task(self.async_request_refresh())
+        self._ble_retry_handles = [
+            async_call_later(self.hass, delay, self._async_retry_refresh)
+            for delay in (4.0, 10.0, 18.0)
+        ]
 
         @callback
         def _trigger_fallback(_now: Any) -> None:
-            self._cancel_ble_fallback = None
+            self._cancel_ble_pending()
             real_logs = [x for x in (self.data or []) if not x.get("ble_fallback")]
             current_dt = (real_logs[0].get("logDateTime") or "") if real_logs else ""
             if current_dt > self._ble_baseline_dt:
@@ -476,7 +500,7 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
                 return
 
             _LOGGER.warning(
-                "Solity cloud log not received within 10s of BLE wake (gateway offline/slow); triggering local BLE open event"
+                "Solity cloud log not received within 25s of BLE wake (gateway offline/slow); triggering local BLE open event"
             )
             now_dt = dt_util.now().strftime("%Y-%m-%d %H:%M:%S")
             ble_log = {
@@ -492,8 +516,8 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
             current = [x for x in (self.data or []) if not x.get("ble_fallback")]
             self.async_set_updated_data([ble_log] + current)
 
-        # Wait 10 seconds for cloud log (gateway/wifi sync) before using fallback
-        self._cancel_ble_fallback = async_call_later(self.hass, 10.0, _trigger_fallback)
+        # Wait 25 seconds for cloud log (gateway/wifi sync) before using fallback
+        self._cancel_ble_fallback = async_call_later(self.hass, 25.0, _trigger_fallback)
 
     async def _async_update_data(self) -> list[dict]:
         try:
@@ -512,16 +536,18 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
                         await status_coord.async_sync_face_nicknames(force=True)
 
             # Check if cloud has caught up with a new log
-            if self._recent_ble_log and data:
-                newest_cloud_dt = data[0].get("logDateTime") or ""
-                if newest_cloud_dt > getattr(self, "_ble_baseline_dt", ""):
+            newest_cloud_dt = (data[0].get("logDateTime") or "") if data else ""
+            if newest_cloud_dt > getattr(self, "_ble_baseline_dt", ""):
+                self._cancel_ble_pending()
+                if self._recent_ble_log:
                     _LOGGER.info(
                         "Solity cloud log received (%s > baseline %s); replacing BLE fallback with real cloud log",
                         newest_cloud_dt,
                         getattr(self, "_ble_baseline_dt", ""),
                     )
                     self._recent_ble_log = None
-                elif time.monotonic() - self._last_ble_event_time > 60.0:
+            elif self._recent_ble_log:
+                if time.monotonic() - self._last_ble_event_time > 60.0:
                     # Expire stale BLE fallback after 60 seconds
                     self._recent_ble_log = None
                 else:

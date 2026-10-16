@@ -84,6 +84,7 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity, Rest
         )
         self._last_dt: str | None = None
         self._cancel_close = None
+        self._ble_fallback_fired: bool = False
 
     @property
     def _face_map(self) -> dict[str, str]:
@@ -96,7 +97,8 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity, Rest
         await super().async_added_to_hass()
         logs = self.coordinator.data or []
         if logs:
-            self._last_dt = logs[0].get("logDateTime")
+            real_logs = [x for x in logs if not x.get("ble_fallback")]
+            self._last_dt = (real_logs[0].get("logDateTime") or "") if real_logs else (logs[0].get("logDateTime") or "")
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -105,16 +107,23 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity, Rest
             return
 
         if self._last_dt is None:
-            self._last_dt = logs[0].get("logDateTime")
+            real_logs = [x for x in logs if not x.get("ble_fallback")]
+            self._last_dt = (real_logs[0].get("logDateTime") or "") if real_logs else (logs[0].get("logDateTime") or "")
             super()._handle_coordinator_update()
             return
 
         # Collect entries newer than the last seen, oldest-first.
-        new_entries = [
-            log
-            for log in logs
-            if (log.get("logDateTime") or "") > self._last_dt
-        ]
+        # Ensure BLE fallback entries only fire once and do NOT poison _last_dt
+        new_entries = []
+        for log in logs:
+            dt_str = log.get("logDateTime") or ""
+            if log.get("ble_fallback"):
+                if not self._ble_fallback_fired:
+                    new_entries.append(log)
+                    self._ble_fallback_fired = True
+            elif dt_str > (self._last_dt or ""):
+                new_entries.append(log)
+
         for log in reversed(new_entries):
             parsed = format_access_log(log, self._face_map)
 
@@ -134,7 +143,13 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity, Rest
             )
 
         if new_entries:
-            self._last_dt = logs[0].get("logDateTime")
+            real_logs = [x for x in logs if not x.get("ble_fallback")]
+            if real_logs:
+                newest_real = real_logs[0].get("logDateTime") or ""
+                if newest_real > (self._last_dt or ""):
+                    self._last_dt = newest_real
+                    self._ble_fallback_fired = False  # Reset fallback flag when real cloud log catches up
+
             # The device logs opens only. If the newest event is an open (not open-long),
             # schedule a synthesized 'close' to mark the auto-lock.
             if str(logs[0].get("logCode")) == LOG_CODE_OPEN:
