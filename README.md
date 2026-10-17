@@ -3,7 +3,7 @@
 솔리티(SOLITY) 스마트 도어락을 **SmartThings 없이** 솔리티 클라우드 API 및 ESPHome 블루투스 프록시(Bluetooth Proxy)로 직접 연동하는 Home Assistant 커스텀 통합구성요소입니다.
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/default)
-[![version](https://img.shields.io/badge/version-v1.6.4-blue.svg)](https://github.com/justicepng/Smart-Solity-Doorlock/releases)
+[![version](https://img.shields.io/badge/version-v1.6.5-blue.svg)](https://github.com/justicepng/Smart-Solity-Doorlock/releases)
 
 ---
 
@@ -157,6 +157,14 @@ action:
 ---
 
 ## 📋 릴리스 변경 이력 (Changelog)
+
+### v1.6.5 (2026-10-17)
+- **문닫힘/자동잠금(Auto-Lock) 무선 신호에 의한 중복 알림 원천 차단**:
+  - 도어락 해제 후 사람이 진입하여 문이 닫히고 데드볼트가 자동으로 잠길 때 발생하는 2차 BLE 신호(약 15~40초 후)로 인해 가짜 문열림 폴백 타이머가 새로 시작되던 버그 완벽 해결.
+  - 도어락 출입 전체 사이클(열림-통과-닫힘-자동잠금)을 충분히 커버하도록 **BLE 감지 쿨다운을 90초로 연장**.
+  - **양방향 클라우드 이벤트 억제 윈도우(90초)** 도입: 클라우드 원본 로그(얼굴인식, 실내개폐 등)가 수신되면 이후 90초 동안의 잔여 BLE 패킷 및 대기 중인 폴백 타이머를 완전히 무효화.
+  - 클라우드 대기 기본 시간을 **60초**로 확대하고 세분화된 단계적 폴링(3s, 7s, 12s, 17s, 22s, 28s, 35s, 42s, 50s, 58s) 적용.
+  - 하나의 출입 이벤트당 **단 1회의 정확한 서버 기록 알림**만 발송되도록 보장.
 
 ### v1.6.4 (2026-10-16)
 - **클라우드 상세 로그 대기 시간 최대 45초로 연장 & 사용자 옵션화**:

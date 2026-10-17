@@ -17,6 +17,8 @@ from homeassistant.util import dt as dt_util
 
 from .api import SolityAuthError, SolityClient, SolityError
 from .const import (
+    BLE_CLOUD_SUPPRESSION_SECONDS,
+    BLE_WAKE_COOLDOWN,
     CONF_BLE_APP_KEY,
     CONF_BLE_FALLBACK_SECONDS,
     CONF_BLE_MAC,
@@ -438,6 +440,8 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
         self._failures = 0
         self._recent_ble_log: dict | None = None
         self._last_ble_event_time: float = 0.0
+        self._last_cloud_event_time: float = 0.0
+        self._prev_cloud_dt: str | None = None
         self._cancel_ble_fallback = None
         self._ble_retry_handles: list[CALLBACK_TYPE] = []
 
@@ -466,8 +470,17 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
     def handle_ble_wake(self, address: str, rssi: int | None = None) -> None:
         """React instantaneously to BLE wake advertisement from Bluetooth proxy."""
         now = time.monotonic()
-        # Cooldown: 15 seconds debounce to avoid multiple triggers for a single door opening
-        if now - self._last_ble_event_time < 15.0:
+        # Cooldown: debounce to avoid multiple triggers for a single door cycle (opening + closing + auto-lock)
+        if now - self._last_ble_event_time < BLE_WAKE_COOLDOWN:
+            return
+
+        # If a real cloud event was processed recently, ignore trailing BLE packets
+        # (e.g. door closing / auto-lock radio chatter)
+        if now - self._last_cloud_event_time < BLE_CLOUD_SUPPRESSION_SECONDS:
+            _LOGGER.debug(
+                "Ignoring BLE wake packet: cloud event was processed recently (%.1fs ago)",
+                now - self._last_cloud_event_time,
+            )
             return
 
         self._last_ble_event_time = now
@@ -491,7 +504,7 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
 
         # Immediately trigger fast cloud refresh and schedule follow-up polls
         self.hass.async_create_task(self.async_request_refresh())
-        poll_delays = [d for d in (3.0, 7.0, 12.0, 17.0, 22.0, 28.0, 35.0, 42.0) if d < fallback_sec]
+        poll_delays = [d for d in (3.0, 7.0, 12.0, 17.0, 22.0, 28.0, 35.0, 42.0, 50.0, 58.0) if d < fallback_sec]
         self._ble_retry_handles = [
             async_call_later(self.hass, delay, self._async_retry_refresh)
             for delay in poll_delays
@@ -500,6 +513,14 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
         @callback
         def _trigger_fallback(_now: Any) -> None:
             self._cancel_ble_pending()
+            now_mono = time.monotonic()
+            if now_mono - self._last_cloud_event_time < BLE_CLOUD_SUPPRESSION_SECONDS:
+                _LOGGER.info(
+                    "Cloud event occurred recently (%.1fs ago); suppressing duplicate BLE fallback",
+                    now_mono - self._last_cloud_event_time,
+                )
+                return
+
             real_logs = [x for x in (self.data or []) if not x.get("ble_fallback")]
             current_dt = (real_logs[0].get("logDateTime") or "") if real_logs else ""
             if current_dt > self._ble_baseline_dt:
@@ -572,13 +593,23 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
 
             # Check if cloud has caught up with a new log
             newest_cloud_dt = (data[0].get("logDateTime") or "") if data else ""
-            if newest_cloud_dt > getattr(self, "_ble_baseline_dt", ""):
+            if self._prev_cloud_dt is None:
+                self._prev_cloud_dt = newest_cloud_dt
+
+            is_new_cloud_log = False
+            if newest_cloud_dt and newest_cloud_dt > self._prev_cloud_dt:
+                self._prev_cloud_dt = newest_cloud_dt
+                is_new_cloud_log = True
+            elif newest_cloud_dt and getattr(self, "_ble_baseline_dt", "") and newest_cloud_dt > self._ble_baseline_dt:
+                is_new_cloud_log = True
+
+            if is_new_cloud_log:
+                self._last_cloud_event_time = time.monotonic()
                 self._cancel_ble_pending()
                 if self._recent_ble_log:
                     _LOGGER.info(
-                        "Solity cloud log received (%s > baseline %s); replacing BLE fallback with real cloud log",
+                        "Solity cloud log received (%s); replacing BLE fallback with real cloud log",
                         newest_cloud_dt,
-                        getattr(self, "_ble_baseline_dt", ""),
                     )
                     self._recent_ble_log = None
             elif self._recent_ble_log:
