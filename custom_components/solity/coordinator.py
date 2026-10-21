@@ -168,7 +168,6 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
                 _LOGGER.debug("Solity fast status poll missed: %r", err)
                 return self.data
             self._failures += 1
-            self._schedule_recover()
             if self.data and self._failures <= TOLERATED_STATUS_FAILURES:
                 _LOGGER.debug(
                     "Solity status miss %s/%s, keeping last data: %s",
@@ -185,7 +184,6 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
             if self._fast and self.data:
                 return self.data
             self._failures += 1
-            self._schedule_recover()
             if self.data and self._failures <= TOLERATED_STATUS_FAILURES:
                 return _get_merged_data()
             return base_data
@@ -225,7 +223,7 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
 
     @property
     def recovering(self) -> bool:
-        return self._recover_task is not None and not self._recover_task.done()
+        return False
 
     @callback
     def mark_unlocked(self, assume_open: bool = False) -> None:
@@ -261,109 +259,45 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
 
     @callback
     def start_verify(self) -> None:
-        """(Re)start the post-open burst of status polls."""
+        """Gentle single status check after manual HA command."""
         if self._verify_task is not None and not self._verify_task.done():
             self._verify_task.cancel()
-        if self.recovering:
-            if self._recover_task is not None:
-                self._recover_task.cancel()
-                self._recover_task = None
         self._verify_task = self.config_entry.async_create_background_task(
             self.hass, self._async_verify(), f"{DOMAIN}_verify_lock"
         )
         self.async_update_listeners()
 
     async def _async_verify(self) -> None:
-        """Poll until the deadbolt reads locked, pacing by the door state."""
+        """Gentle post-command check: wait 3 seconds and poll ONCE to protect gateway from freezing."""
         loop = asyncio.get_running_loop()
         start = loop.time()
-        polls = 0
-        open_wait = VERIFY_OPEN_FIRST
-        closed_streak = 0
         trace: list[dict[str, Any]] = []
         self.last_verify_trace = trace
         try:
-            while polls < VERIFY_MAX_POLLS:
-                for _ in range(1 + VERIFY_POLL_RETRIES):
-                    await self._async_fast_refresh()
-                    polls += 1
-                    if self.last_poll_ok:
-                        break
-                elapsed = round(loop.time() - start, 1)
+            # Wait 3 seconds for the physical lock motor to complete movement
+            await asyncio.sleep(3.0)
+            if self.gateway_conn_status == "N":
+                trace.append({"t": 3.0, "result": "gateway_offline"})
+                self._record_verify(3.0, 0, "gateway_offline", trace)
+                return
 
-                if not self.last_poll_ok:
-                    trace.append({"t": elapsed, "result": "no_answer"})
-                    self._drop_assumed_door()
-                    wait = VERIFY_UNKNOWN_RECHECK
-                elif self.is_locked:
-                    trace.append({"t": elapsed, "result": "locked"})
-                    self._record_verify(elapsed, polls, "locked", trace)
-                    return
-                elif self.door_open is False:
-                    trace.append({"t": elapsed, "result": "closed_unlocked"})
-                    closed_streak += 1
-                    if closed_streak <= VERIFY_CLOSED_FAST_TRIES:
-                        wait = VERIFY_CLOSED_RECHECK
-                    else:
-                        wait = open_wait
-                        open_wait = min(open_wait * 2, VERIFY_BACKOFF_MAX)
-                elif self.door_open is True:
-                    trace.append({"t": elapsed, "result": "open"})
-                    closed_streak = 0
-                    wait = open_wait
-                    open_wait = min(open_wait * 2, VERIFY_BACKOFF_MAX)
-                else:
-                    trace.append({"t": elapsed, "result": "unlocked"})
-                    wait = VERIFY_UNKNOWN_RECHECK
-
-                del trace[:-VERIFY_TRACE_LEN]
-                self.async_update_listeners()
-                if loop.time() - start + wait > VERIFY_WINDOW:
-                    break
-                await asyncio.sleep(wait)
-            answered = any(x["result"] != "no_answer" for x in trace)
-            self._record_verify(
-                round(loop.time() - start, 1),
-                polls,
-                "still_unlocked" if answered else "no_answer",
-                trace,
-            )
+            await self._async_fast_refresh()
+            elapsed = round(loop.time() - start, 1)
+            if self.last_poll_ok:
+                res = "locked" if self.is_locked else "unlocked"
+                trace.append({"t": elapsed, "result": res})
+                self._record_verify(elapsed, 1, res, trace)
+            else:
+                trace.append({"t": elapsed, "result": "no_answer"})
+                self._record_verify(elapsed, 1, "no_answer", trace)
+        except asyncio.CancelledError:
+            pass
+        except Exception as err:
+            _LOGGER.debug("Verify task error: %s", err)
         finally:
             if self._verify_task is asyncio.current_task():
                 self._verify_task = None
-                if not self.last_poll_ok:
-                    self._schedule_recover()
                 self.async_update_listeners()
-
-    @callback
-    def _schedule_recover(self) -> None:
-        """Lock not answering: re-poll slowly until it does."""
-        if self.recovering or self.verifying or self.data is None:
-            return
-        self._recover_task = self.config_entry.async_create_background_task(
-            self.hass, self._async_recover(), f"{DOMAIN}_recover_lock"
-        )
-
-    async def _async_recover(self) -> None:
-        attempt = 0
-        _LOGGER.warning(
-            "Solity lock is not answering status requests; retrying every %s-%ss until it does",
-            RECOVER_DELAYS[0],
-            RECOVER_DELAYS[-1],
-        )
-        while True:
-            await asyncio.sleep(RECOVER_DELAYS[min(attempt, len(RECOVER_DELAYS) - 1)])
-            attempt += 1
-            await self.async_refresh()
-            if self.last_poll_ok:
-                break
-        _LOGGER.info("Solity lock answers again (after %s retries)", attempt)
-        if self._recover_task is asyncio.current_task():
-            self._recover_task = None
-        if self.is_locked is False:
-            self.start_verify()
-        else:
-            self.async_update_listeners()
 
     @callback
     def _record_verify(
@@ -407,12 +341,9 @@ class SolityStatusCoordinator(DataUpdateCoordinator[dict]):
                     self.mark_locked()
                 return
             if all(str(x.get("mediaType")) == LOG_MEDIA_REMOTE for x in opens):
-                if not self.verifying:
-                    self.mark_unlocked()
-                    self.start_verify()
+                self.mark_unlocked()
                 return
             self.mark_unlocked(assume_open=True)
-            self.start_verify()
 
         return log.async_add_listener(_on_log)
 

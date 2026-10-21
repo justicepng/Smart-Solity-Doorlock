@@ -3,7 +3,7 @@
 솔리티(SOLITY) 스마트 도어락을 **SmartThings 없이** 솔리티 클라우드 API 및 ESPHome 블루투스 프록시(Bluetooth Proxy)로 직접 연동하는 Home Assistant 커스텀 통합구성요소입니다.
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/default)
-[![version](https://img.shields.io/badge/version-v1.6.6-blue.svg)](https://github.com/justicepng/Smart-Solity-Doorlock/releases)
+[![version](https://img.shields.io/badge/version-v1.6.7-blue.svg)](https://github.com/justicepng/Smart-Solity-Doorlock/releases)
 
 ---
 
@@ -157,6 +157,13 @@ action:
 ---
 
 ## 📋 릴리스 변경 이력 (Changelog)
+
+### v1.6.7 (2026-10-21)
+- **Wi-Fi 게이트웨이(GW-100) 과부하 프리징 및 먹통 현상 원천 차단**:
+  - **문 열림 후 40회 연속 강제 상태 폴링 폭격 제거**: 기존에 문 열림 감지 시 작동하던 `_async_verify()`가 40초 동안 게이트웨이에 최대 40회의 물리적 RF 하드웨어 조회(`get_status`) 명령을 난사하여 저사양 IoT 게이트웨이(GW-100)의 버퍼 오버플로우 및 MQTT 소켓 다운(`gatewayConnStatus: N`)을 유발하던 문제를 원천 해결.
+  - **도어락 하드웨어 특성에 맞춘 비간섭 모니터링**: 솔리티 도어락은 문이 닫히면 5초 내 자체 물리 모터로 자동 잠김(Auto-Lock)되므로, 불필요한 게이트웨이 하드웨어 호출을 중단하고 Home Assistant 내부 타이머 및 패시브 클라우드 메타데이터(`GET /api_v2/myDevice`)를 활용하여 게이트웨이 부하 0% 달성.
+  - **무한 재시도 루프(`_async_recover`) 제거**: 게이트웨이나 도어락 응답 지연 시 백그라운드에서 끝없이 재시도하던 루프를 제거하여 게이트웨이 24시간 연결 안정성 확보.
+  - **수동 제어 검증 최적화**: HA UI에서 수동으로 문열림/잠금을 눌렀을 때만 모터 동작 시간(3초) 대기 후 단 1회 가볍게 상태를 확인하도록 경량화.
 
 ### v1.6.6 (2026-10-21)
 - **Wi-Fi 게이트웨이 오프라인 시 블루투스 즉시 폴백 및 알림 누락 완전 해결**:
