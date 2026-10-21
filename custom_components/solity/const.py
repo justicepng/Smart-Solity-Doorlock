@@ -39,14 +39,14 @@ MAX_AUTO_CLOSE_SECONDS = 300
 
 # How long to wait for detailed cloud log after BLE wake before fallback
 CONF_BLE_FALLBACK_SECONDS = "ble_fallback_seconds"
-DEFAULT_BLE_FALLBACK_SECONDS = 60
-MIN_BLE_FALLBACK_SECONDS = 15
+DEFAULT_BLE_FALLBACK_SECONDS = 25
+MIN_BLE_FALLBACK_SECONDS = 2
 MAX_BLE_FALLBACK_SECONDS = 180
 
 # BLE wake cooldown & cloud suppression window (seconds)
 # Prevents auto-lock latch chatter / door closure signals from triggering secondary wake cycles
-BLE_WAKE_COOLDOWN = 90.0
-BLE_CLOUD_SUPPRESSION_SECONDS = 90.0
+BLE_WAKE_COOLDOWN = 35.0
+BLE_CLOUD_SUPPRESSION_SECONDS = 35.0
 
 # Attribute values tagging the synthesized auto-lock close event.
 AUTO_CLOSE_METHOD = "auto"

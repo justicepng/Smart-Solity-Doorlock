@@ -84,7 +84,7 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity, Rest
         )
         self._last_dt: str | None = None
         self._cancel_close = None
-        self._ble_fallback_fired: bool = False
+        self._last_ble_fallback_dt: str = ""
 
     @property
     def _face_map(self) -> dict[str, str]:
@@ -113,14 +113,16 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity, Rest
             return
 
         # Collect entries newer than the last seen, oldest-first.
-        # Ensure BLE fallback entries only fire once and do NOT poison _last_dt
+        # Ensure BLE fallback entries only fire once per unique event and do NOT poison _last_dt
         new_entries = []
         for log in logs:
             dt_str = log.get("logDateTime") or ""
             if log.get("ble_fallback"):
-                if not self._ble_fallback_fired:
+                # Unique timestamp check: each new fallback event fires exactly once,
+                # and allows subsequent fallback events to fire even during extended gateway outages!
+                if dt_str != getattr(self, "_last_ble_fallback_dt", ""):
                     new_entries.append(log)
-                    self._ble_fallback_fired = True
+                    self._last_ble_fallback_dt = dt_str
             elif dt_str > (self._last_dt or ""):
                 new_entries.append(log)
 
@@ -148,7 +150,6 @@ class SolityDoorEvent(CoordinatorEntity[SolityLogCoordinator], EventEntity, Rest
                 newest_real = real_logs[0].get("logDateTime") or ""
                 if newest_real > (self._last_dt or ""):
                     self._last_dt = newest_real
-                    self._ble_fallback_fired = False  # Reset fallback flag when real cloud log catches up
 
             # The device logs opens only. If the newest event is an open (not open-long),
             # schedule a synthesized 'close' to mark the auto-lock.

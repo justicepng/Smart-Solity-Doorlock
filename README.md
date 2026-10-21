@@ -3,7 +3,7 @@
 솔리티(SOLITY) 스마트 도어락을 **SmartThings 없이** 솔리티 클라우드 API 및 ESPHome 블루투스 프록시(Bluetooth Proxy)로 직접 연동하는 Home Assistant 커스텀 통합구성요소입니다.
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/default)
-[![version](https://img.shields.io/badge/version-v1.6.5-blue.svg)](https://github.com/justicepng/Smart-Solity-Doorlock/releases)
+[![version](https://img.shields.io/badge/version-v1.6.6-blue.svg)](https://github.com/justicepng/Smart-Solity-Doorlock/releases)
 
 ---
 
@@ -157,6 +157,13 @@ action:
 ---
 
 ## 📋 릴리스 변경 이력 (Changelog)
+
+### v1.6.6 (2026-10-21)
+- **Wi-Fi 게이트웨이 오프라인 시 블루투스 즉시 폴백 및 알림 누락 완전 해결**:
+  - **게이트웨이 오프라인 실시간 감지**: 게이트웨이가 오프라인(`gatewayConnStatus: N`)인 경우 클라우드 로그를 무작정 기다리지 않고 감지 즉시 **2초 만에 초고속 로컬 BLE 알림** 발송.
+  - **오프라인 다중 출입 알림 누락 버그 수정**: 이전 1회 폴백 후 불리언 플래그가 클라우드 로그 도착 전까지 리셋되지 않아 이후 모든 출입 알림이 누락되던 치명적 버그 해결 (고유 이벤트 타임스탬프 기반 관리로 전환하여 게이트웨이가 끊겨도 매 출입마다 알림 발송).
+  - **BLE 패킷 필터링 강화**: HA Bluetooth 콜백 매처에 `connectable: False` 및 `ACTIVE` 스캐닝을 지정하여 비연결성 브로드캐스트 비콘 및 스캔 응답 패킷까지 100% 수신.
+  - **출입 쿨다운 최적화**: 연속적인 가족 출입 누락을 방지하기 위해 쿨다운을 35초로 최적화(자동잠금 패킷은 차단하면서 연속 출입 허용).
 
 ### v1.6.5 (2026-10-17)
 - **문닫힘/자동잠금(Auto-Lock) 무선 신호에 의한 중복 알림 원천 차단**:

@@ -487,24 +487,40 @@ class SolityLogCoordinator(DataUpdateCoordinator[list[dict]]):
         real_logs = [x for x in (self.data or []) if not x.get("ble_fallback")]
         self._ble_baseline_dt = (real_logs[0].get("logDateTime") or "") if real_logs else ""
 
-        fallback_sec = float(
-            self.config_entry.options.get(
-                CONF_BLE_FALLBACK_SECONDS, DEFAULT_BLE_FALLBACK_SECONDS
-            )
+        # Check if gateway is known to be offline
+        status_coord = (
+            self.config_entry.runtime_data.status
+            if hasattr(self.config_entry, "runtime_data") and self.config_entry.runtime_data
+            else None
         )
+        is_gw_offline = bool(status_coord and status_coord.gateway_conn_status == "N")
 
-        _LOGGER.warning(
-            "Solity door lock BLE wake detected: mac=%s, rssi=%s. Triggering cloud refresh sequence (wait up to %ss)...",
-            address,
-            rssi,
-            int(fallback_sec),
-        )
+        if is_gw_offline:
+            # When gateway is offline, cloud cannot receive door logs. Trigger local BLE fallback immediately!
+            fallback_sec = 2.0
+            _LOGGER.warning(
+                "Solity door lock BLE wake detected: mac=%s, rssi=%s (Gateway OFFLINE). Triggering immediate local BLE open event in 2s...",
+                address,
+                rssi,
+            )
+        else:
+            fallback_sec = float(
+                self.config_entry.options.get(
+                    CONF_BLE_FALLBACK_SECONDS, DEFAULT_BLE_FALLBACK_SECONDS
+                )
+            )
+            _LOGGER.warning(
+                "Solity door lock BLE wake detected: mac=%s, rssi=%s. Triggering cloud refresh sequence (wait up to %ss)...",
+                address,
+                rssi,
+                int(fallback_sec),
+            )
 
         self._cancel_ble_pending()
 
         # Immediately trigger fast cloud refresh and schedule follow-up polls
         self.hass.async_create_task(self.async_request_refresh())
-        poll_delays = [d for d in (3.0, 7.0, 12.0, 17.0, 22.0, 28.0, 35.0, 42.0, 50.0, 58.0) if d < fallback_sec]
+        poll_delays = [d for d in (2.0, 5.0, 9.0, 14.0, 20.0) if d < fallback_sec]
         self._ble_retry_handles = [
             async_call_later(self.hass, delay, self._async_retry_refresh)
             for delay in poll_delays

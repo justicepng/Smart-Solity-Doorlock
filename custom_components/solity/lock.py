@@ -192,8 +192,8 @@ class SolityLock(CoordinatorEntity[SolityStatusCoordinator], LockEntity, Restore
                     bluetooth.async_register_callback(
                         self.hass,
                         _on_ble_packet,
-                        {"address": mac},
-                        bluetooth.BluetoothScanningMode.PASSIVE,
+                        {"address": mac, "connectable": False},
+                        bluetooth.BluetoothScanningMode.ACTIVE,
                     )
                 )
                 _LOGGER.info("Registered BLE listener for Solity door lock %s", mac)
